@@ -8,6 +8,10 @@ A static, GitHub Pages-ready Path of Exile 1 target-item builder and ChatGPT cra
 
 ## What this release adds
 
+- A Craft of Exile-inspired modifier browser: source sections, side-by-side prefix/suffix columns, expandable modifier families, compact tier tables and sortable iLvl/weight views.
+- One family row can contain every tier in the same modifier group; only the chosen tier is added to the target.
+- Search opens matching families automatically, while Open all groups and Collapse all reproduce the fast pool-browsing workflow.
+
 - The modifier list is now filtered by a deterministic browser rules engine rather than trusting a broad imported pool.
 - RePoE `mods_by_base` is treated as candidate evidence. Candidates are rechecked against base tags, item class, domain and ordered spawn weights before display.
 - Crafting Bench and Essence item-class maps can be loaded from their RePoE exports.

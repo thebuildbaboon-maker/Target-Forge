@@ -41,7 +41,7 @@
     allowPurchasedBase: $('#allowPurchasedBase'), mechanicAccessSummary: $('#mechanicAccessSummary'), mechanicAccessControls: $('#mechanicAccessControls'),
     legalitySummary: $('#legalitySummary'), legalityIssues: $('#legalityIssues'),
     poolSummary: $('#poolSummary'), modSearch: $('#modSearch'), sideFilter: $('#sideFilter'), sourceFilter: $('#sourceFilter'),
-    showUnavailable: $('#showUnavailable'), sourcePills: $('#sourcePills'), modList: $('#modList'),
+    showUnavailable: $('#showUnavailable'), modSort: $('#modSort'), sourcePills: $('#sourcePills'), expandAllMods: $('#expandAllMods'), collapseAllMods: $('#collapseAllMods'), modList: $('#modList'),
     targetItemName: $('#targetItemName'), itemPreview: $('#itemPreview'), selectedMods: $('#selectedMods'), clearModsBtn: $('#clearModsBtn'),
     strategyCard: $('#strategyCard'), copyStrategyBtn: $('#copyStrategyBtn'), copyPobBtn: $('#copyPobBtn'),
     newTargetBtn: $('#newTargetBtn'), exportBtn: $('#exportBtn'), exportModal: $('#exportModal'), closeExportBtn: $('#closeExportBtn'),
@@ -60,8 +60,9 @@
     constraints: { openPrefix: false, openSuffix: false, allowCrafted: true, ssf: false, notes: '' },
     mechanicAccess: new Set(DEFAULT_MECHANIC_ACCESS),
     allowPurchasedBase: true,
-    filters: { query: '', side: 'all', source: 'all', showUnavailable: true, density: 'compact' },
+    filters: { query: '', side: 'all', source: 'all', sort: 'family', showUnavailable: true, density: 'compact' },
     openSourceGroups: new Set(['natural','crafted','essence','influence']),
+    openModFamilies: new Set(),
     exportMode: 'agent',
     dragModId: null
   };
@@ -871,37 +872,131 @@
     return affix === 'prefix' ? 'Prefixes' : affix === 'suffix' ? 'Suffixes' : affix === 'implicit' ? 'Implicits' : humanize(affix);
   }
 
-  function renderModRow(mod) {
+  function primaryModGroup(mod) {
+    return (mod.groups && mod.groups[0]) || mod.group || mod.type || mod.name || mod.id;
+  }
+
+  function modFamilyKey(mod) {
+    return [mod.source || 'other', mod.affix || 'other', primaryModGroup(mod)].join('::');
+  }
+
+  function tierNumber(value) {
+    const match = String(value || '').match(/(?:^|\b)T(?:ier\s*)?(\d+)/i);
+    return match ? Number(match[1]) : null;
+  }
+
+  function sortFamilyTiers(mods) {
+    return [...mods].sort((a,b) => {
+      const at = tierNumber(a.tier), bt = tierNumber(b.tier);
+      if (at !== null || bt !== null) return (at ?? 999) - (bt ?? 999) || safeNumber(b.required_level)-safeNumber(a.required_level);
+      return safeNumber(b.required_level)-safeNumber(a.required_level) || safeNumber(b.weight)-safeNumber(a.weight) || a.display.localeCompare(b.display);
+    });
+  }
+
+  function effectiveTierLabel(mod, index, familySize) {
+    if (mod.tier) return mod.tier;
+    if (familySize > 1 && ['natural','influence','delve','incursion'].includes(mod.source)) return `T${index + 1}`;
+    return sourceMeta(mod.source).short;
+  }
+
+  function familyName(mods) {
+    const first = mods[0];
+    const names = Array.from(new Set(mods.map(mod => String(mod.name || '').trim()).filter(Boolean)));
+    if (names.length === 1) return names[0];
+    return humanize(primaryModGroup(first));
+  }
+
+  function familyMetrics(mods) {
+    const levels = mods.map(mod => safeNumber(mod.required_level, 1));
+    const weights = mods.map(mod => safeNumber(mod.weight, 0));
+    return {
+      maxLevel: Math.max(...levels),
+      maxWeight: Math.max(...weights),
+      available: mods.filter(mod => validateMod(mod,{forAdd:true}).valid).length,
+      selected: mods.filter(mod => state.selectedMods.some(selected => selected.id === mod.id)).length
+    };
+  }
+
+  function compareFamilies(a, b) {
+    const am = familyMetrics(a.mods), bm = familyMetrics(b.mods);
+    if (am.selected !== bm.selected) return bm.selected - am.selected;
+    if (state.filters.sort === 'level' && am.maxLevel !== bm.maxLevel) return bm.maxLevel-am.maxLevel;
+    if (state.filters.sort === 'weight' && am.maxWeight !== bm.maxWeight) return bm.maxWeight-am.maxWeight;
+    return a.name.localeCompare(b.name) || bm.maxLevel-am.maxLevel;
+  }
+
+  function renderModTierRow(mod, index, familySize) {
     const validation = validateMod(mod, {forAdd:true});
     const selected = state.selectedMods.some(existing => existing.id === mod.id);
     const reason = validation.reasons[0]?.message || '';
-    const metaParts = [
-      mod.tier || null,
-      `ilvl ${mod.required_level}`,
-      mod.influence ? humanize(mod.influence) : null,
-      mod.weight !== null && mod.weight !== undefined ? `w ${mod.weight}` : null
-    ].filter(Boolean);
-    const title = [mod.id, `Group: ${mod.type || mod.group || 'unknown'}`, ...(validation.reasons || []).map(entry => entry.message)].join('\n');
+    const title = [mod.id, `Group: ${primaryModGroup(mod)}`, ...(validation.reasons || []).map(entry => entry.message)].join('\n');
+    const tier = effectiveTierLabel(mod,index,familySize);
+    const weight = mod.weight !== null && mod.weight !== undefined ? Number(mod.weight).toLocaleString() : '—';
     return `
-      <div class="mod-row ${validation.valid?'':'unavailable'} ${selected?'selected':''}" data-mod-card="${escapeHTML(mod.id)}" title="${escapeHTML(title)}">
-        <span class="affix-marker ${escapeHTML(mod.affix)}" aria-label="${escapeHTML(mod.affix)}">${mod.affix==='prefix'?'P':mod.affix==='suffix'?'S':'I'}</span>
-        <div class="mod-row-copy">
-          <div class="mod-row-title">
-            <span>${escapeHTML(mod.display)}</span>
-            ${mod.tier ? `<b>${escapeHTML(mod.tier)}</b>` : ''}
-          </div>
-          <div class="mod-row-meta">${metaParts.map(part => `<span>${escapeHTML(part)}</span>`).join('')}</div>
-          ${reason ? `<div class="mod-row-reason">${escapeHTML(reason)}</div>` : ''}
-        </div>
-        <button class="add-mod-btn compact-add" data-add-mod="${escapeHTML(mod.id)}" ${validation.valid?'':'disabled'} aria-label="${selected?'Modifier already added':`Add ${escapeHTML(mod.display)}`}">${selected?'✓':'+'}</button>
+      <div class="mod-tier-row ${validation.valid?'':'unavailable'} ${selected?'selected':''}" data-mod-tier="${escapeHTML(mod.id)}" ${validation.valid && !selected ? `data-add-mod="${escapeHTML(mod.id)}"` : ''} title="${escapeHTML(title)}">
+        <span class="tier-cell">${escapeHTML(tier)}</span>
+        <span class="tier-stat-cell">
+          <strong>${escapeHTML(mod.display)}</strong>
+          ${reason ? `<small>${escapeHTML(reason)}</small>` : `<small>${escapeHTML(mod.id)}</small>`}
+        </span>
+        <span class="numeric-cell">${safeNumber(mod.required_level,1)}</span>
+        <span class="numeric-cell">${escapeHTML(weight)}</span>
+        <button class="tier-add-button" data-add-mod="${escapeHTML(mod.id)}" ${validation.valid?'':'disabled'} aria-label="${selected?'Modifier already selected':`Add ${escapeHTML(mod.display)}`}">${selected?'✓':'+'}</button>
       </div>`;
   }
 
-  function renderModList() {
+  function renderModFamily(mods) {
+    const tiers = sortFamilyTiers(mods);
+    const key = modFamilyKey(tiers[0]);
+    const name = familyName(tiers);
+    const metrics = familyMetrics(tiers);
+    const selected = metrics.selected > 0;
+    const q = state.filters.query.trim();
+    const isOpen = Boolean(q) || selected || state.openModFamilies.has(key);
+    const best = tiers.find(mod => validateMod(mod,{forAdd:true}).valid) || tiers[0];
+    const statusText = metrics.available === tiers.length ? `${tiers.length} tier${tiers.length===1?'':'s'}` : `${metrics.available}/${tiers.length} available`;
+    return `<details class="mod-family ${selected?'selected':''} ${metrics.available===0?'fully-unavailable':''}" data-mod-family="${escapeHTML(key)}" ${isOpen?'open':''}>
+      <summary>
+        <span class="family-status ${selected?'selected':''}">${selected?'✓':metrics.available?'':'×'}</span>
+        <span class="family-name-cell"><strong>${escapeHTML(name)}</strong><small>${escapeHTML(best.display)}</small></span>
+        <span class="family-source-tag">${escapeHTML(sourceMeta(best.source).short)}</span>
+        <span class="family-tier-count">${escapeHTML(statusText)}</span>
+      </summary>
+      <div class="mod-tier-table">
+        <div class="mod-tier-head"><span>Tier</span><span>Modifier</span><span>iLvl</span><span>Weight</span><span></span></div>
+        ${tiers.map((mod,index) => renderModTierRow(mod,index,tiers.length)).join('')}
+      </div>
+    </details>`;
+  }
+
+  function buildFamilies(mods) {
+    const map = new Map();
+    for (const mod of mods) {
+      const key = modFamilyKey(mod);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(mod);
+    }
+    return Array.from(map.values()).map(group => ({ name:familyName(group), mods:group })).sort(compareFamilies);
+  }
+
+  function renderAffixColumn(affix, mods) {
+    if (!mods.length) return '';
+    const families = buildFamilies(mods);
+    const available = mods.filter(mod => validateMod(mod,{forAdd:true}).valid).length;
+    return `<section class="coe-affix-column ${escapeHTML(affix)} ${affix==='implicit'||affix==='other'?'wide':''}">
+      <header class="coe-affix-header">
+        <span class="affix-marker ${escapeHTML(affix)}">${affix==='prefix'?'P':affix==='suffix'?'S':'I'}</span>
+        <strong>${escapeHTML(affixLabel(affix))}</strong>
+        <small>${available}/${mods.length} selectable</small>
+      </header>
+      <div class="mod-family-list">${families.map(family => renderModFamily(family.mods)).join('')}</div>
+    </section>`;
+  }
+
+  function currentFilteredMods() {
     const pool = applicablePool();
-    const mods = pool.mods;
     const q = state.filters.query.trim().toLowerCase();
-    let filtered = mods.filter(mod => {
+    return pool.mods.filter(mod => {
       if (state.filters.side !== 'all' && mod.affix !== state.filters.side) return false;
       if (state.filters.source !== 'all' && mod.source !== state.filters.source) return false;
       if (q && !modSearchText(mod).includes(q)) return false;
@@ -909,21 +1004,17 @@
       if (!state.filters.showUnavailable && !available) return false;
       return true;
     });
+  }
 
-    filtered.sort((a,b) => {
-      const sideOrder = {prefix:0,suffix:1,implicit:2,other:3};
-      return SOURCE_ORDER.indexOf(a.source)-SOURCE_ORDER.indexOf(b.source) ||
-        (sideOrder[a.affix]??9)-(sideOrder[b.affix]??9) ||
-        safeNumber(b.required_level)-safeNumber(a.required_level) ||
-        a.display.localeCompare(b.display);
-    });
-
+  function renderModList() {
+    const pool = applicablePool();
+    let filtered = currentFilteredMods();
     const totalFiltered = filtered.length;
     filtered = filtered.slice(0, MAX_RENDERED_MODS);
     const selectedTotal = state.selectedMods.length;
     const diagnostics = pool.diagnostics;
     const rejectedText = diagnostics?.rejected ? ` · ${diagnostics.rejected.toLocaleString()} rejected by base rules` : '';
-    els.poolSummary.textContent = `${mods.length.toLocaleString()} legal-on-base mods${diagnostics?.candidates ? ` from ${diagnostics.candidates.toLocaleString()} candidates` : ''}${rejectedText} · ${selectedTotal} selected${totalFiltered > MAX_RENDERED_MODS ? ` · first ${MAX_RENDERED_MODS.toLocaleString()} matches shown` : ''}`;
+    els.poolSummary.textContent = `${pool.mods.length.toLocaleString()} legal-on-base mods${diagnostics?.candidates ? ` from ${diagnostics.candidates.toLocaleString()} candidates` : ''}${rejectedText} · ${selectedTotal} selected${totalFiltered > MAX_RENDERED_MODS ? ` · first ${MAX_RENDERED_MODS.toLocaleString()} matches shown` : ''}`;
 
     if (!currentBase()) {
       els.modList.innerHTML = '<div class="mod-list-empty">Choose a base to populate the modifier browser.</div>';
@@ -944,29 +1035,28 @@
     }
 
     const html = [];
-    for (const source of SOURCE_ORDER.filter(source => sourceGroups.has(source))) {
+    const orderedSources = [...sourceGroups.keys()].sort((a,b) => {
+      const ai=SOURCE_ORDER.indexOf(a), bi=SOURCE_ORDER.indexOf(b);
+      return (ai<0?999:ai)-(bi<0?999:bi);
+    });
+    for (const source of orderedSources) {
       const byAffix = sourceGroups.get(source);
       const groupMods = Array.from(byAffix.values()).flat();
       const availableCount = groupMods.filter(mod => validateMod(mod,{forAdd:true}).valid).length;
       const hasSelected = groupMods.some(mod => state.selectedMods.some(selected => selected.id === mod.id));
-      const isOpen = q || state.filters.source !== 'all' || state.openSourceGroups.has(source) || hasSelected;
+      const isOpen = state.filters.query || state.filters.source !== 'all' || state.openSourceGroups.has(source) || hasSelected;
       const meta = sourceMeta(source);
-      html.push(`<details class="mod-source-group" data-source-group="${escapeHTML(source)}" ${isOpen?'open':''}>
+      html.push(`<details class="mod-source-group coe-source-group" data-source-group="${escapeHTML(source)}" ${isOpen?'open':''}>
         <summary>
           <span class="source-summary-copy"><strong>${escapeHTML(meta.label)}</strong><small>${escapeHTML(meta.description)}</small></span>
           <span class="source-summary-count">${availableCount}/${groupMods.length}</span>
         </summary>
-        <div class="source-group-body">`);
-      for (const affix of ['prefix','suffix','implicit','other']) {
-        const group = byAffix.get(affix);
-        if (!group?.length) continue;
-        html.push(`<section class="affix-source-section"><header><span>${escapeHTML(affixLabel(affix))}</span><b>${group.length}</b></header><div class="compact-mod-rows">`);
-        group.forEach(mod => html.push(renderModRow(mod)));
-        html.push('</div></section>');
-      }
-      html.push('</div></details>');
+        <div class="source-group-body coe-affix-grid">
+          ${['prefix','suffix','implicit','other'].map(affix => renderAffixColumn(affix, byAffix.get(affix) || [])).join('')}
+        </div>
+      </details>`);
     }
-    els.modList.className = `mod-list source-categorized ${state.filters.density === 'compact' ? 'compact' : ''}`;
+    els.modList.className = `mod-list source-categorized coe-mod-list ${state.filters.density === 'compact' ? 'compact' : ''}`;
     els.modList.innerHTML = html.join('');
   }
 
@@ -1484,6 +1574,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
 
   els.modSearch.addEventListener('input', () => { state.filters.query=els.modSearch.value; renderModList(); });
   els.sideFilter.addEventListener('change', () => { state.filters.side=els.sideFilter.value; renderModList(); });
+  els.modSort.addEventListener('change', () => { state.filters.sort=els.modSort.value; renderModList(); });
   els.sourceFilter.addEventListener('change', () => {
     state.filters.source=els.sourceFilter.value;
     if (state.filters.source !== 'all') state.openSourceGroups.add(state.filters.source);
@@ -1506,13 +1597,35 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     const preset=event.target.closest('[data-mechanic-preset]');
     if(preset) applyMechanicPreset(preset.dataset.mechanicPreset);
   });
-  els.modList.addEventListener('click', event => { const btn=event.target.closest('[data-add-mod]'); if(btn)addMod(btn.dataset.addMod); });
+  els.modList.addEventListener('click', event => {
+    const btn=event.target.closest('[data-add-mod]');
+    if (btn) { event.preventDefault(); event.stopPropagation(); addMod(btn.dataset.addMod); }
+  });
   els.modList.addEventListener('toggle', event => {
-    const details = event.target.closest?.('[data-source-group]');
-    if (!details) return;
-    if (details.open) state.openSourceGroups.add(details.dataset.sourceGroup);
-    else state.openSourceGroups.delete(details.dataset.sourceGroup);
+    const target = event.target;
+    if (target.matches?.('[data-mod-family]')) {
+      if (target.open) state.openModFamilies.add(target.dataset.modFamily);
+      else state.openModFamilies.delete(target.dataset.modFamily);
+      return;
+    }
+    if (target.matches?.('[data-source-group]')) {
+      if (target.open) state.openSourceGroups.add(target.dataset.sourceGroup);
+      else state.openSourceGroups.delete(target.dataset.sourceGroup);
+    }
   }, true);
+  els.expandAllMods.addEventListener('click', () => {
+    const mods = currentFilteredMods();
+    mods.forEach(mod => {
+      state.openSourceGroups.add(mod.source || 'other');
+      state.openModFamilies.add(modFamilyKey(mod));
+    });
+    renderModList();
+  });
+  els.collapseAllMods.addEventListener('click', () => {
+    state.openSourceGroups.clear();
+    state.openModFamilies.clear();
+    renderModList();
+  });
   document.addEventListener('keydown', event => {
     if (event.key==='/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { event.preventDefault(); els.modSearch.focus(); }
     if (event.key==='Escape') { els.dataModal.hidden=true; els.exportModal.hidden=true; els.baseResults.hidden=true; }

@@ -14,7 +14,7 @@
         <div class="brand-mark" aria-hidden="true">◆</div>
         <div>
           <h1>PoE Target Forge</h1>
-          <p>Build a legal target item, one modifier at a time.</p>
+          <p>Build a legal target item, one modifier tier at a time.</p>
         </div>
       </div>
       <div class="top-actions">
@@ -144,7 +144,7 @@
         <div class="mod-browser-header">
           <div>
             <span class="eyebrow">Applicable modifier pool</span>
-            <h2>Modifiers by crafting source</h2>
+            <h2>Modifier pool</h2>
             <p id="poolSummary">Choose a base to see modifiers that pass the browser rules.</p>
           </div>
           <div class="view-toggle" aria-label="Modifier density">
@@ -153,20 +153,26 @@
           </div>
         </div>
 
-        <div class="mod-toolbar">
+        <div class="mod-toolbar coe-toolbar">
           <div class="search-box">
             <span aria-hidden="true">⌕</span>
-            <input id="modSearch" type="search" placeholder="Search life, resistance, spell level, mod id…" />
+            <input id="modSearch" type="search" placeholder="Search modifier families, stats, tags or IDs…" />
             <kbd>/</kbd>
           </div>
           <select id="sideFilter" class="select-input toolbar-select" aria-label="Affix side">
             <option value="all">Prefixes + suffixes</option>
-            <option value="prefix">Prefixes</option>
-            <option value="suffix">Suffixes</option>
-            <option value="implicit">Implicits</option>
+            <option value="prefix">Prefixes only</option>
+            <option value="suffix">Suffixes only</option>
+            <option value="implicit">Implicits only</option>
           </select>
           <select id="sourceFilter" class="select-input toolbar-select" aria-label="Modifier source">
-            <option value="all">All source groups</option>
+            <option value="all">All sources</option>
+          </select>
+          <select id="modSort" class="select-input toolbar-select" aria-label="Modifier sorting">
+            <option value="family">Modifier family</option>
+            <option value="level">Highest item level</option>
+            <option value="weight">Highest spawn weight</option>
+            <option value="name">Name A–Z</option>
           </select>
           <label class="availability-toggle">
             <input id="showUnavailable" type="checkbox" checked />
@@ -175,7 +181,14 @@
         </div>
 
         <div id="sourcePills" class="source-pills" aria-label="Quick source filters"></div>
-        <div id="modList" class="mod-list"></div>
+        <div class="mod-group-toolbar">
+          <p><strong>Modifier families</strong> — open a family to choose a tier. Unavailable tiers remain visible with the blocking reason.</p>
+          <div class="mod-group-actions">
+            <button id="expandAllMods" class="button text-button compact" type="button">Open all groups</button>
+            <button id="collapseAllMods" class="button text-button compact" type="button">Collapse all</button>
+          </div>
+        </div>
+        <div id="modList" class="mod-list coe-mod-list"></div>
       </section>
 
       <aside class="panel target-panel" aria-label="Target item">

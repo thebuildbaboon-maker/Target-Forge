@@ -305,3 +305,75 @@ button { color: inherit; }
   .mod-toolbar { grid-template-columns: 1fr 140px 165px; }
   .availability-toggle { grid-column: 1 / -1; min-height: 26px; }
 }
+
+
+/* Craft of Exile-inspired modifier browser interaction model (r4).
+   Original styling and branding; grouped family/tier navigation mirrors the
+   familiar compact data workflow without copying site assets. */
+.coe-toolbar { grid-template-columns: minmax(230px,1fr) 160px 155px 170px auto; }
+.mod-group-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 20px 8px 22px; border-bottom:1px solid var(--line-soft); }
+.mod-group-toolbar p { margin:0; color:var(--faint); font-size:9px; line-height:1.35; }
+.mod-group-toolbar p strong { color:#aaa397; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+.mod-group-actions { display:flex; align-items:center; gap:2px; white-space:nowrap; }
+.mod-group-actions .button { color:#999da4; font-size:9px; padding:4px 6px; }
+.coe-mod-list { padding-top:8px !important; }
+.coe-source-group { border-radius:4px; margin-bottom:8px; }
+.coe-source-group > summary { min-height:34px; padding:5px 9px; background:#181b20; }
+.coe-source-group .source-summary-copy strong { font-size:9px; }
+.coe-source-group .source-summary-copy small { font-size:8px; }
+.coe-affix-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:7px; padding:7px; background:#101216; align-items:start; }
+.coe-affix-column { min-width:0; border:1px solid #292e35; background:#14171b; }
+.coe-affix-column.wide { grid-column:1 / -1; }
+.coe-affix-header { min-height:30px; display:grid; grid-template-columns:20px auto 1fr; gap:6px; align-items:center; padding:4px 7px; border-bottom:1px solid #2a2f37; background:#1b1e24; }
+.coe-affix-header .affix-marker { width:18px; height:18px; border-radius:2px; }
+.coe-affix-header strong { color:#d3cbbb; font-size:9px; text-transform:uppercase; letter-spacing:.09em; }
+.coe-affix-header small { justify-self:end; color:#6f747c; font-size:8px; font-variant-numeric:tabular-nums; }
+.mod-family-list { display:grid; }
+.mod-family { border-bottom:1px solid #242930; background:#14171b; }
+.mod-family:last-child { border-bottom:0; }
+.mod-family > summary { list-style:none; cursor:pointer; display:grid; grid-template-columns:17px minmax(0,1fr) auto auto; gap:6px; align-items:center; min-height:36px; padding:4px 6px; transition:background .1s; }
+.mod-family > summary::-webkit-details-marker { display:none; }
+.mod-family > summary:hover { background:#1a1e24; }
+.mod-family[open] > summary { background:#1d2127; border-bottom:1px solid #2c323a; }
+.mod-family.selected > summary { box-shadow:inset 2px 0 0 var(--gold); }
+.mod-family.fully-unavailable > summary { opacity:.55; }
+.family-status { width:14px; height:14px; display:grid; place-items:center; border:1px solid #3c424b; border-radius:2px; color:#6e747d; font-size:8px; }
+.family-status.selected { color:#12150f; background:#a9c483; border-color:#c1da99; font-weight:900; }
+.family-name-cell { min-width:0; display:block; }
+.family-name-cell strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#ded9cf; font-size:9px; font-weight:600; }
+.family-name-cell small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; color:#737983; font-size:8px; }
+.family-source-tag { border:1px solid #353b44; padding:2px 4px; border-radius:2px; color:#9398a0; font-size:7px; text-transform:uppercase; letter-spacing:.04em; }
+.family-tier-count { color:#737983; font-size:8px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.mod-tier-table { background:#0f1114; }
+.mod-tier-head, .mod-tier-row { display:grid; grid-template-columns:42px minmax(0,1fr) 38px 58px 27px; gap:5px; align-items:center; }
+.mod-tier-head { min-height:22px; padding:2px 5px; border-bottom:1px solid #252a31; color:#666c75; font-size:7px; text-transform:uppercase; letter-spacing:.08em; }
+.mod-tier-head span:nth-child(3), .mod-tier-head span:nth-child(4) { text-align:right; }
+.mod-tier-row { min-height:34px; padding:3px 5px; border-bottom:1px solid #1e2228; cursor:pointer; transition:background .1s; }
+.mod-tier-row:last-child { border-bottom:0; }
+.mod-tier-row:hover { background:#181c21; }
+.mod-tier-row.unavailable { cursor:not-allowed; opacity:.48; }
+.mod-tier-row.selected { background:rgba(201,164,91,.09); box-shadow:inset 2px 0 0 var(--gold); }
+.tier-cell { color:#d4ad61; font-size:8px; font-weight:800; text-transform:uppercase; }
+.tier-stat-cell { min-width:0; }
+.tier-stat-cell strong { display:block; color:#bfc5cd; font-size:8px; line-height:1.25; font-weight:500; }
+.tier-stat-cell small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; color:#5f6570; font-size:7px; }
+.mod-tier-row.unavailable .tier-stat-cell small { color:#bf8581; }
+.numeric-cell { text-align:right; color:#828892; font-size:8px; font-variant-numeric:tabular-nums; }
+.tier-add-button { width:23px; height:23px; border:1px solid #3a414b; border-radius:2px; background:#20242a; color:#c8ccd2; cursor:pointer; font-size:13px; line-height:1; }
+.tier-add-button:hover:not(:disabled) { border-color:#9e7b3d; color:#e0bd75; background:#292720; }
+.tier-add-button:disabled { cursor:not-allowed; color:#656a72; }
+.mod-list:not(.compact) .mod-family > summary { min-height:44px; padding:6px 8px; }
+.mod-list:not(.compact) .family-name-cell strong { font-size:10px; }
+.mod-list:not(.compact) .family-name-cell small { font-size:9px; }
+.mod-list:not(.compact) .mod-tier-row { min-height:42px; padding:5px 7px; }
+.mod-list:not(.compact) .tier-stat-cell strong { font-size:9px; }
+.mod-list:not(.compact) .tier-stat-cell small { font-size:8px; }
+
+@media (max-width:1450px) {
+  .coe-toolbar { grid-template-columns:minmax(220px,1fr) 138px 160px 170px; }
+  .coe-toolbar .availability-toggle { grid-column:1 / -1; min-height:24px; }
+}
+@media (max-width:1220px) {
+  .coe-affix-grid { grid-template-columns:1fr; }
+  .coe-affix-column.wide { grid-column:auto; }
+}
