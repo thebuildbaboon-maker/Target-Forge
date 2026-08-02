@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Path of Exile target item builder with deterministic affix validation and GPT-ready crafting exports." />
+  <title>PoE Target Forge</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">◆</div>
+        <div>
+          <h1>PoE Target Forge</h1>
+          <p>Build a legal target item, one modifier at a time.</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button id="newTargetBtn" class="button ghost">New target</button>
+        <button id="exportBtn" class="button primary">Export for GPT</button>
+      </div>
+    </header>
+
+    <div id="dataBanner" class="data-banner" role="status">
+      <div>
+        <strong id="dataModeLabel">Offline demo data</strong>
+        <span id="dataModeDetail">Use the RePoE loader for a much larger, current mod pool.</span>
+      </div>
+      <button id="openDataBtn" class="button compact">Data sources</button>
+    </div>
+
+    <main class="workspace">
+      <aside class="panel setup-panel" aria-label="Item setup">
+        <section class="panel-section">
+          <div class="section-heading">
+            <span class="step-number">1</span>
+            <div>
+              <h2>Choose the base</h2>
+              <p>The mod pool updates automatically.</p>
+            </div>
+          </div>
+
+          <label class="field-label" for="baseSearch">Base item</label>
+          <div class="combo-wrap">
+            <input id="baseSearch" class="text-input" type="search" autocomplete="off" placeholder="Search bases…" />
+            <button id="clearBaseSearch" class="input-clear" aria-label="Clear base search">×</button>
+            <div id="baseResults" class="combo-results" hidden></div>
+          </div>
+
+          <div id="selectedBaseCard" class="base-card"></div>
+
+          <div class="field-grid">
+            <label>
+              <span class="field-label">Item level</span>
+              <input id="itemLevel" class="number-input" type="number" min="1" max="100" value="86" />
+            </label>
+            <label>
+              <span class="field-label">Rarity</span>
+              <select id="rarity" class="select-input">
+                <option value="rare">Rare</option>
+                <option value="magic">Magic</option>
+              </select>
+            </label>
+            <label>
+              <span class="field-label">Target quality</span>
+              <input id="qualityInput" class="number-input" type="number" min="0" max="30" value="20" />
+            </label>
+          </div>
+
+          <fieldset class="influence-fieldset">
+            <legend>Influences / states</legend>
+            <div id="influenceControls" class="chip-checks"></div>
+          </fieldset>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-heading compact-heading">
+            <span class="step-number">2</span>
+            <div>
+              <h2>Set target constraints</h2>
+              <p>Optional requirements for the final item.</p>
+            </div>
+          </div>
+          <div class="constraint-grid">
+            <label class="toggle-row">
+              <input id="openPrefix" type="checkbox" />
+              <span>Keep an open prefix</span>
+            </label>
+            <label class="toggle-row">
+              <input id="openSuffix" type="checkbox" />
+              <span>Keep an open suffix</span>
+            </label>
+            <label class="toggle-row">
+              <input id="allowCrafted" type="checkbox" checked />
+              <span>Allow crafted modifiers</span>
+            </label>
+            <label class="toggle-row">
+              <input id="ssfMode" type="checkbox" />
+              <span>SSF-friendly strategy</span>
+            </label>
+          </div>
+          <label class="field-label" for="budgetInput">Budget / notes</label>
+          <textarea id="budgetInput" class="text-area small" placeholder="Example: 20 divines, avoid risky annuls, current league…"></textarea>
+        </section>
+
+        <section class="panel-section mechanic-access-section">
+          <div class="section-heading compact-heading">
+            <span class="step-number">3</span>
+            <div>
+              <h2>Crafting access</h2>
+              <p>Exclude mechanics the crafting agent may not recommend.</p>
+            </div>
+          </div>
+          <div class="mechanic-presets">
+            <button class="button compact" data-mechanic-preset="all-current">All current</button>
+            <button class="button compact" data-mechanic-preset="common">Common</button>
+            <button class="button compact" data-mechanic-preset="ssf">SSF core</button>
+            <button class="button compact ghost" data-mechanic-preset="none">Clear</button>
+          </div>
+          <label class="toggle-row starting-base-toggle">
+            <input id="allowPurchasedBase" type="checkbox" checked />
+            <span>Allow buying a prepared starting base</span>
+          </label>
+          <div id="mechanicAccessSummary" class="mechanic-access-summary"></div>
+          <div id="mechanicAccessControls" class="mechanic-access-controls"></div>
+        </section>
+
+        <section class="panel-section diagnostics-section">
+          <div class="section-heading compact-heading">
+            <span class="step-number">4</span>
+            <div>
+              <h2>Legality</h2>
+              <p>Deterministic checks for the modeled rules.</p>
+            </div>
+          </div>
+          <div id="legalitySummary" class="legality-summary"></div>
+          <div id="legalityIssues" class="issue-list"></div>
+        </section>
+      </aside>
+
+      <section class="panel mod-browser-panel" aria-label="Modifier browser">
+        <div class="mod-browser-header">
+          <div>
+            <span class="eyebrow">Applicable modifier pool</span>
+            <h2>Add affixes</h2>
+            <p id="poolSummary">Choose a base to see applicable modifiers.</p>
+          </div>
+          <div class="view-toggle" aria-label="Modifier density">
+            <button class="view-button active" data-density="comfortable" title="Comfortable view">▤</button>
+            <button class="view-button" data-density="compact" title="Compact view">☷</button>
+          </div>
+        </div>
+
+        <div class="mod-toolbar">
+          <div class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input id="modSearch" type="search" placeholder="Search life, resistance, spell level, mod id…" />
+            <kbd>/</kbd>
+          </div>
+          <select id="sideFilter" class="select-input toolbar-select" aria-label="Affix side">
+            <option value="all">Prefixes + suffixes</option>
+            <option value="prefix">Prefixes</option>
+            <option value="suffix">Suffixes</option>
+            <option value="implicit">Implicits</option>
+          </select>
+          <select id="sourceFilter" class="select-input toolbar-select" aria-label="Modifier source">
+            <option value="all">All sources</option>
+          </select>
+          <label class="availability-toggle">
+            <input id="showUnavailable" type="checkbox" checked />
+            <span>Show unavailable</span>
+          </label>
+        </div>
+
+        <div id="sourcePills" class="source-pills" aria-label="Quick source filters"></div>
+        <div id="modList" class="mod-list"></div>
+      </section>
+
+      <aside class="panel target-panel" aria-label="Target item">
+        <section class="item-preview-wrap">
+          <div class="item-preview-header">
+            <div>
+              <span class="eyebrow">Target item</span>
+              <h2 id="targetItemName">Unformed Item</h2>
+            </div>
+            <button id="copyPobBtn" class="icon-button" title="Copy readable item text">⧉</button>
+          </div>
+
+          <div id="itemPreview" class="poe-item-card"></div>
+        </section>
+
+        <section class="selected-section">
+          <div class="selected-heading">
+            <div>
+              <h3>Selected modifiers</h3>
+              <p>Drag to reorder for presentation. Rules use modifier identity, not order.</p>
+            </div>
+            <button id="clearModsBtn" class="button text-button">Clear</button>
+          </div>
+          <div id="selectedMods" class="selected-mod-list"></div>
+        </section>
+
+        <section class="strategy-section">
+          <div class="section-heading compact-heading no-step">
+            <div>
+              <span class="eyebrow">Agent handoff</span>
+              <h2>Crafting route hints</h2>
+              <p>Filtered by your accessible mechanics; the exported JSON is the authoritative handoff.</p>
+            </div>
+          </div>
+          <div id="strategyCard" class="strategy-card"></div>
+          <button id="copyStrategyBtn" class="button secondary full-width">Copy agent target JSON</button>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <div id="dataModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dataModalTitle">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow">Data management</span>
+          <h2 id="dataModalTitle">Load a larger RePoE dataset</h2>
+        </div>
+        <button id="closeDataBtn" class="icon-button" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="callout warning">
+          <strong>Prototype scope</strong>
+          <p>The included offline dataset demonstrates the complete interface and core checks. Loading RePoE adds current bases and a much larger applicable mod pool. Exotic mechanics may still need explicit rule adapters.</p>
+        </div>
+
+        <div class="data-actions-grid">
+          <article class="data-option">
+            <h3>Load directly</h3>
+            <p>Fetches current PoE 1 exports from RePoE. This works when the files are served over HTTP and the source allows cross-origin requests.</p>
+            <button id="loadRemoteBtn" class="button primary full-width">Load current RePoE</button>
+            <div id="remoteProgress" class="progress-text"></div>
+          </article>
+
+          <article class="data-option">
+            <h3>Import downloaded files</h3>
+            <p>Select <code>base_items.min.json</code>, <code>mods.min.json</code>, and <code>mods_by_base.min.json</code>. Stat translations may also be selected; the adapter uses readable stat-id fallback text when an exact translation is unavailable.</p>
+            <label class="file-drop">
+              <input id="dataFiles" type="file" accept=".json,application/json" multiple />
+              <span>Choose RePoE JSON files</span>
+              <small>All parsing stays in your browser.</small>
+            </label>
+          </article>
+        </div>
+
+        <details class="technical-details">
+          <summary>Expected URLs and adapter behavior</summary>
+          <pre>https://repoe-fork.github.io/base_items.min.json
+https://repoe-fork.github.io/mods.min.json
+https://repoe-fork.github.io/mods_by_base.min.json
+https://repoe-fork.github.io/stat_translations.min.json</pre>
+          <p>The adapter uses the selected base’s tags and RePoE’s precomputed <code>mods_by_base</code> groups. The adapter formats stat IDs into readable fallback text when exact in-game translation data is unavailable. Exceptional item-state rules come from the installed 3.29.1.1 knowledge package.</p>
+        </details>
+      </div>
+      <div class="modal-footer">
+        <button id="restoreDemoBtn" class="button ghost">Restore demo data</button>
+        <button id="doneDataBtn" class="button secondary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="exportModal" class="modal-backdrop" hidden>
+    <div class="modal export-modal" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow">Copy / paste output</span>
+          <h2 id="exportModalTitle">GPT crafting packet</h2>
+        </div>
+        <button id="closeExportBtn" class="icon-button" aria-label="Close">×</button>
+      </div>
+      <div class="export-tabs" role="tablist">
+        <button class="export-tab active" data-export-mode="agent">Agent target JSON</button>
+        <button class="export-tab" data-export-mode="packet">Diagnostic packet</button>
+        <button class="export-tab" data-export-mode="prompt">One-time setup prompt</button>
+        <button class="export-tab" data-export-mode="readable">Readable item</button>
+      </div>
+      <div class="modal-body export-body">
+        <div id="exportExplanation" class="export-explanation"></div>
+        <textarea id="exportOutput" class="export-output" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span id="exportSize" class="export-size"></span>
+        <div class="footer-actions">
+          <button id="downloadExportBtn" class="button ghost">Download JSON</button>
+          <button id="copyExportBtn" class="button primary">Copy to clipboard</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="mechanics-data.js"></script>
+  <script src="sample-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
