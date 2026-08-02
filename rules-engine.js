@@ -254,6 +254,45 @@
     return { valid: reasons.length === 0, reasons, evidence };
   }
 
+
+  function hasPositiveSpawnWeight(mod) {
+    return Array.isArray(mod && mod.spawn_weights) && mod.spawn_weights.some(rule => Number(rule && rule.weight) > 0);
+  }
+
+  function annotateInfluenceUpgradeTiers(mods) {
+    const groups = new Map();
+    for (const mod of mods || []) {
+      if (!mod || mod.source !== 'influence' || !['prefix','suffix'].includes(mod.affix)) continue;
+      const key = [mod.affix, mod.influence || '', mod.type || mod.group || (mod.groups || [])[0] || mod.id].join('|');
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(mod);
+    }
+    for (const family of groups.values()) {
+      const ordinary = family.filter(mod => {
+        const rawLevel = Number(mod.raw_required_level ?? mod.required_level ?? 1);
+        const namedElevated = /(?:^|\b)(elevated|t0|tier\s*0)(?:\b|$)/i.test(`${mod.id || ''} ${mod.name || ''}`);
+        return !namedElevated && rawLevel < 100;
+      });
+      const precursorLevel = ordinary.length ? Math.max(...ordinary.map(mod => Number(mod.required_level) || 1)) : null;
+      for (const mod of family) {
+        const rawLevel = Number(mod.raw_required_level ?? mod.required_level ?? 1);
+        const namedElevated = /(?:^|\b)(elevated|t0|tier\s*0)(?:\b|$)/i.test(`${mod.id || ''} ${mod.name || ''}`);
+        const upgradeOnly = namedElevated || rawLevel >= 100;
+        if (!upgradeOnly) continue;
+        mod.raw_required_level = rawLevel;
+        mod.precursor_required_level = precursorLevel;
+        mod.required_level = 1;
+        mod.tier = 'T0';
+        mod.elevated = true;
+        mod.is_upgrade_only = true;
+        mod.acquisition_mechanic = 'orb_of_dominance';
+        mod.weight = 0;
+        mod.notes = [mod.notes, `Upgrade-only elevated influence modifier. The final elevated modifier has no direct item-level requirement; a T1 precursor is normally required${precursorLevel ? ` and is unlocked at item level ${precursorLevel}` : ''}. Raw data level ${rawLevel} is not a rollable item-level requirement.`].filter(Boolean).join(' ');
+      }
+    }
+    return mods;
+  }
+
   function groupsFor(mod) {
     return new Set([...(mod.groups || []), mod.type, mod.group].filter(Boolean));
   }
@@ -308,6 +347,7 @@
     orderedWeight,
     spawnContextTokens,
     baseCompatibility,
+    annotateInfluenceUpgradeTiers,
     groupsFor,
     groupConflict,
     rareAffixLimits,

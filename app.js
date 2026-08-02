@@ -63,6 +63,7 @@
     filters: { query: '', side: 'all', source: 'all', sort: 'family', showUnavailable: true, density: 'compact' },
     openSourceGroups: new Set(['natural','crafted','essence','influence']),
     openModFamilies: new Set(),
+    familyTierSelection: new Map(),
     exportMode: 'agent',
     dragModId: null
   };
@@ -171,6 +172,7 @@
       ].filter(Boolean))),
       group: raw.type || raw.group || (Array.isArray(raw.groups) ? raw.groups[0] : null) || id,
       type: raw.type || raw.group || (Array.isArray(raw.groups) ? raw.groups[0] : null) || id,
+      raw_required_level: safeNumber(raw.required_level, 1),
       required_level: safeNumber(raw.required_level, 1),
       tier: null,
       source,
@@ -379,6 +381,7 @@
           if (legality.valid) accepted.push(mod);
           else rejected.push({ id:mod.id, text:mod.display, reasons:legality.reasons });
         }
+        POE_RULES.annotateInfluenceUpgradeTiers(accepted);
         assignDerivedTiers(accepted);
         this.poolDiagnostics.set(base.id, {
           candidates:candidateMeta.size,
@@ -408,6 +411,8 @@
           mod.base_rule_evaluation = legality;
           if (legality.valid) accepted.push(mod); else rejected.push({id:mod.id,text:mod.display,reasons:legality.reasons});
         }
+        POE_RULES.annotateInfluenceUpgradeTiers(accepted);
+        assignDerivedTiers(accepted);
         poolDiagnostics.set(base.id, {candidates:candidates.length,accepted:accepted.length,rejected:rejected.length,rejectedExamples:rejected.slice(0,20),coverage:'bundled-demo-rules'});
         return accepted;
       }
@@ -423,8 +428,10 @@
       groups.get(key).push(mod);
     }
     for (const group of groups.values()) {
-      group.sort((a,b) => b.required_level - a.required_level || safeNumber(b.weight) - safeNumber(a.weight));
-      group.forEach((mod, i) => { if (!mod.tier) mod.tier = `T${i+1}`; });
+      const ordinary = group.filter(mod => !mod.elevated);
+      ordinary.sort((a,b) => b.required_level - a.required_level || safeNumber(b.weight) - safeNumber(a.weight));
+      ordinary.forEach((mod, i) => { if (!mod.tier) mod.tier = `T${i+1}`; });
+      group.filter(mod => mod.elevated).forEach(mod => { mod.tier = 'T0'; });
     }
   }
 
@@ -475,6 +482,7 @@
 
   function mechanicCandidatesForMod(mod) {
     if (!mod) return [];
+    if (mod.elevated || mod.acquisition_mechanic === 'orb_of_dominance') return ['orb_of_dominance'];
     const sourceMap = {
       natural: ['core_currency','crafting_bench'],
       crafted: ['crafting_bench'],
@@ -520,18 +528,6 @@
         accessible_candidates:candidates.filter(id => state.mechanicAccess.has(id)),
         can_be_satisfied_by_prepared_base:state.allowPurchasedBase,
         inaccessible:!hasRecombinatorAccess() && !state.allowPurchasedBase
-      });
-    }
-    const elevated = state.selectedMods.filter(mod => mod.elevated);
-    for (const mod of elevated) {
-      const candidates = ['orb_of_dominance'];
-      requirements.push({
-        mod_id:mod.id,
-        rule:'elevated_influence_modifier',
-        candidate_mechanics:candidates,
-        accessible_candidates:candidates.filter(id => state.mechanicAccess.has(id)),
-        can_be_satisfied_by_prepared_base:state.allowPurchasedBase,
-        inaccessible:!state.mechanicAccess.has('orb_of_dominance') && !state.allowPurchasedBase
       });
     }
     const fractured = state.selectedMods.filter(mod => mod.fractured);
@@ -894,6 +890,7 @@
   }
 
   function effectiveTierLabel(mod, index, familySize) {
+    if (mod.elevated) return 'T0';
     if (mod.tier) return mod.tier;
     if (familySize > 1 && ['natural','influence','delve','incursion'].includes(mod.source)) return `T${index + 1}`;
     return sourceMeta(mod.source).short;
@@ -925,24 +922,21 @@
     return a.name.localeCompare(b.name) || bm.maxLevel-am.maxLevel;
   }
 
-  function renderModTierRow(mod, index, familySize) {
-    const validation = validateMod(mod, {forAdd:true});
-    const selected = state.selectedMods.some(existing => existing.id === mod.id);
-    const reason = validation.reasons[0]?.message || '';
-    const title = [mod.id, `Group: ${primaryModGroup(mod)}`, ...(validation.reasons || []).map(entry => entry.message)].join('\n');
-    const tier = effectiveTierLabel(mod,index,familySize);
-    const weight = mod.weight !== null && mod.weight !== undefined ? Number(mod.weight).toLocaleString() : '—';
-    return `
-      <div class="mod-tier-row ${validation.valid?'':'unavailable'} ${selected?'selected':''}" data-mod-tier="${escapeHTML(mod.id)}" ${validation.valid && !selected ? `data-add-mod="${escapeHTML(mod.id)}"` : ''} title="${escapeHTML(title)}">
-        <span class="tier-cell">${escapeHTML(tier)}</span>
-        <span class="tier-stat-cell">
-          <strong>${escapeHTML(mod.display)}</strong>
-          ${reason ? `<small>${escapeHTML(reason)}</small>` : `<small>${escapeHTML(mod.id)}</small>`}
-        </span>
-        <span class="numeric-cell">${safeNumber(mod.required_level,1)}</span>
-        <span class="numeric-cell">${escapeHTML(weight)}</span>
-        <button class="tier-add-button" data-add-mod="${escapeHTML(mod.id)}" ${validation.valid?'':'disabled'} aria-label="${selected?'Modifier already selected':`Add ${escapeHTML(mod.display)}`}">${selected?'✓':'+'}</button>
-      </div>`;
+  function familySelectedTier(mods) {
+    const tiers = sortFamilyTiers(mods);
+    const key = modFamilyKey(tiers[0]);
+    const alreadySelected = tiers.find(mod => state.selectedMods.some(selected => selected.id === mod.id));
+    const rememberedId = state.familyTierSelection.get(key);
+    const remembered = tiers.find(mod => mod.id === rememberedId);
+    const firstAvailable = tiers.find(mod => validateMod(mod, {forAdd:true}).valid);
+    const chosen = alreadySelected || remembered || firstAvailable || tiers[0];
+    state.familyTierSelection.set(key, chosen.id);
+    return chosen;
+  }
+
+  function tierRequirementLabel(mod) {
+    if (mod.elevated) return 'T0 · upgrade only';
+    return `${effectiveTierLabel(mod,0,1)} · iLvl ${safeNumber(mod.required_level,1)}`;
   }
 
   function renderModFamily(mods) {
@@ -951,22 +945,32 @@
     const name = familyName(tiers);
     const metrics = familyMetrics(tiers);
     const selected = metrics.selected > 0;
-    const q = state.filters.query.trim();
-    const isOpen = Boolean(q) || selected || state.openModFamilies.has(key);
-    const best = tiers.find(mod => validateMod(mod,{forAdd:true}).valid) || tiers[0];
-    const statusText = metrics.available === tiers.length ? `${tiers.length} tier${tiers.length===1?'':'s'}` : `${metrics.available}/${tiers.length} available`;
-    return `<details class="mod-family ${selected?'selected':''} ${metrics.available===0?'fully-unavailable':''}" data-mod-family="${escapeHTML(key)}" ${isOpen?'open':''}>
-      <summary>
+    const chosen = familySelectedTier(tiers);
+    const chosenValidation = validateMod(chosen, {forAdd:true});
+    const chosenSelected = state.selectedMods.some(existing => existing.id === chosen.id);
+    const reason = chosenValidation.reasons[0]?.message || '';
+    const weight = chosen.elevated ? 'Upgrade' : chosen.weight !== null && chosen.weight !== undefined ? Number(chosen.weight).toLocaleString() : '—';
+    const optionHtml = tiers.map((mod,index) => {
+      const validation = validateMod(mod,{forAdd:true});
+      const label = mod.elevated
+        ? 'T0 Elevated · upgrade only'
+        : `${effectiveTierLabel(mod,index,tiers.length)} · iLvl ${safeNumber(mod.required_level,1)}`;
+      return `<option value="${escapeHTML(mod.id)}" ${mod.id===chosen.id?'selected':''} ${!validation.valid && !state.selectedMods.some(existing=>existing.id===mod.id)?'disabled':''}>${escapeHTML(label)}</option>`;
+    }).join('');
+    const title = [chosen.id, `Group: ${primaryModGroup(chosen)}`, ...(chosenValidation.reasons || []).map(entry => entry.message)].join('\n');
+    return `<article class="mod-family family-select-row ${selected?'selected':''} ${metrics.available===0?'fully-unavailable':''}" data-mod-family="${escapeHTML(key)}" title="${escapeHTML(title)}">
+      <div class="family-main-line">
         <span class="family-status ${selected?'selected':''}">${selected?'✓':metrics.available?'':'×'}</span>
-        <span class="family-name-cell"><strong>${escapeHTML(name)}</strong><small>${escapeHTML(best.display)}</small></span>
-        <span class="family-source-tag">${escapeHTML(sourceMeta(best.source).short)}</span>
-        <span class="family-tier-count">${escapeHTML(statusText)}</span>
-      </summary>
-      <div class="mod-tier-table">
-        <div class="mod-tier-head"><span>Tier</span><span>Modifier</span><span>iLvl</span><span>Weight</span><span></span></div>
-        ${tiers.map((mod,index) => renderModTierRow(mod,index,tiers.length)).join('')}
+        <strong class="family-compact-name">${escapeHTML(name)}</strong>
+        <select class="family-tier-select" data-family-tier-select="${escapeHTML(key)}" aria-label="Choose tier for ${escapeHTML(name)}">${optionHtml}</select>
+        <button class="tier-add-button family-add-button" data-add-mod="${escapeHTML(chosen.id)}" ${chosenValidation.valid && !chosenSelected?'':'disabled'} aria-label="${chosenSelected?'Modifier already selected':`Add ${escapeHTML(chosen.display)}`}">${chosenSelected?'✓':'+'}</button>
       </div>
-    </details>`;
+      <div class="family-detail-line ${chosenValidation.valid?'':'unavailable'}">
+        <span class="family-detail-text">${escapeHTML(chosen.display)}</span>
+        <span class="family-detail-meta">${escapeHTML(sourceMeta(chosen.source).short)} · ${escapeHTML(chosen.elevated ? `T0 via Orb of Dominance · precursor T1 iLvl ${chosen.precursor_required_level || 'unknown'}` : `iLvl ${chosen.required_level}`)} · ${escapeHTML(weight)}</span>
+        ${reason ? `<small>${escapeHTML(reason)}</small>` : ''}
+      </div>
+    </article>`;
   }
 
   function buildFamilies(mods) {
@@ -1124,7 +1128,7 @@
           <span class="drag-handle">⋮⋮</span>
           <div class="selected-mod-text"><strong>${escapeHTML(mod.display)}</strong><span>${escapeHTML(mod.affix)} · ${escapeHTML(sourceLabel(mod))}</span></div>
           <div class="selected-mod-actions">
-            ${mod.source==='influence' ? `<button class="state-pill ${mod.elevated?'active':''}" data-toggle-elevated="${escapeHTML(mod.id)}" title="Require the elevated version">Elevated</button>` : ''}
+            ${mod.source==='influence' && !mod.is_upgrade_only ? `<button class="state-pill ${mod.elevated?'active':''}" data-toggle-elevated="${escapeHTML(mod.id)}" title="Require the elevated version">Elevated</button>` : mod.elevated ? `<span class="state-pill active fixed" title="Upgrade-only elevated modifier">T0 Elevated</span>` : ''}
             ${['prefix','suffix'].includes(mod.affix) ? `<button class="state-pill ${mod.fractured?'active':''}" data-toggle-fracture="${escapeHTML(mod.id)}" title="Require this modifier to be fractured">Fractured</button>` : ''}
             <button class="remove-mod" data-remove-mod="${escapeHTML(mod.id)}" aria-label="Remove">×</button>
           </div>
@@ -1209,7 +1213,11 @@
       source: mod.source,
       influence: mod.influence || null,
       required_item_level: mod.required_level,
+      raw_data_required_level: mod.raw_required_level ?? mod.required_level,
+      precursor_required_item_level: mod.precursor_required_level ?? null,
+      item_level_rule: mod.is_upgrade_only ? 'no_direct_requirement_upgrade_only' : 'minimum_item_level_to_spawn',
       tier: mod.tier || null,
+      acquisition_mechanic: mod.acquisition_mechanic || null,
       modifier_group: mod.type || mod.group || null,
       modifier_groups: Array.from(new Set([...(mod.groups || []), mod.type, mod.group].filter(Boolean))),
       tags: mod.tags || [],
@@ -1419,6 +1427,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     state.selectedBaseId = id;
     state.selectedMods = [];
     state.influences.clear();
+    state.familyTierSelection.clear();
     applicableCache = {key:null,mods:[],diagnostics:null};
     els.baseResults.hidden = true;
     renderAll();
@@ -1601,13 +1610,14 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     const btn=event.target.closest('[data-add-mod]');
     if (btn) { event.preventDefault(); event.stopPropagation(); addMod(btn.dataset.addMod); }
   });
+  els.modList.addEventListener('change', event => {
+    const select=event.target.closest('[data-family-tier-select]');
+    if(!select) return;
+    state.familyTierSelection.set(select.dataset.familyTierSelect, select.value);
+    renderModList();
+  });
   els.modList.addEventListener('toggle', event => {
     const target = event.target;
-    if (target.matches?.('[data-mod-family]')) {
-      if (target.open) state.openModFamilies.add(target.dataset.modFamily);
-      else state.openModFamilies.delete(target.dataset.modFamily);
-      return;
-    }
     if (target.matches?.('[data-source-group]')) {
       if (target.open) state.openSourceGroups.add(target.dataset.sourceGroup);
       else state.openSourceGroups.delete(target.dataset.sourceGroup);
@@ -1615,15 +1625,11 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
   }, true);
   els.expandAllMods.addEventListener('click', () => {
     const mods = currentFilteredMods();
-    mods.forEach(mod => {
-      state.openSourceGroups.add(mod.source || 'other');
-      state.openModFamilies.add(modFamilyKey(mod));
-    });
+    mods.forEach(mod => state.openSourceGroups.add(mod.source || 'other'));
     renderModList();
   });
   els.collapseAllMods.addEventListener('click', () => {
     state.openSourceGroups.clear();
-    state.openModFamilies.clear();
     renderModList();
   });
   document.addEventListener('keydown', event => {

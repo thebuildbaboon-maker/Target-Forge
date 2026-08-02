@@ -102,3 +102,7 @@ Use one of:
 - `item-state-matrix.json`: item-state compatibility.
 - `target-schema.json`: expected target payload.
 - `SOURCES.md`: provenance and freshness notes.
+
+## Elevated influence item levels
+
+When a selected modifier has `item_level_rule: "no_direct_requirement_upgrade_only"`, do not interpret `raw_data_required_level` as a required item level for the final item. The modifier is an elevated T0 upgrade outcome. Use `precursor_required_item_level` only when planning the T1 precursor or donor, and require an allowed acquisition route such as Orb of Dominance, transfer from an elevated donor, or an explicitly permitted prepared starting base.

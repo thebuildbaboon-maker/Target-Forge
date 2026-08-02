@@ -85,3 +85,8 @@ The tests cover ordered spawn-weight behavior, base-tag rejection, essence class
 ## Accuracy boundary
 
 This site validates target construction and prepares a strategy handoff. It does not simulate every stochastic crafting action. Exact probabilities require a complete current competing pool or a simulator; exact costs require a current league price snapshot.
+
+
+## r5 UI and influence-level correction
+
+The modifier pool uses compact two-line family rows with a tier dropdown. RePoE influence entries that represent elevated upgrade outcomes are normalized to T0 and have no direct final-item level gate; the highest ordinary precursor tier and raw internal level are retained separately in the exported JSON for traceability.
