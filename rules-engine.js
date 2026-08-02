@@ -10,7 +10,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const RULESET_ID = 'poe1-target-legality-3.29.1.1-r3';
+  const RULESET_ID = 'poe1-target-legality-3.29.1.1-r6';
 
   const SOURCE_META = {
     natural: { label: 'Natural affixes', short: 'Natural', description: 'Ordinary prefix and suffix pool for the selected base.' },
@@ -293,6 +293,34 @@
     return mods;
   }
 
+  function influenceCompatibility(mod, activeInfluences, options) {
+    const opts = options || {};
+    const maximum = Number.isFinite(Number(opts.maximum)) ? Number(opts.maximum) : 2;
+    const required = canonicalToken(mod && mod.influence);
+    const active = new Set(Array.from(activeInfluences || []).map(canonicalToken).filter(Boolean));
+    if (!required) {
+      return { valid: true, required: null, already_active: true, auto_activate: false, projected: Array.from(active), maximum };
+    }
+    if (active.has(required)) {
+      return { valid: true, required, already_active: true, auto_activate: false, projected: Array.from(active), maximum };
+    }
+    if (active.size >= maximum) {
+      return {
+        valid: false,
+        required,
+        already_active: false,
+        auto_activate: false,
+        projected: Array.from(active),
+        maximum,
+        code: 'INFLUENCE_LIMIT',
+        message: `Requires ${required} influence, but the item already has the maximum of ${maximum} different influences.`
+      };
+    }
+    const projected = new Set(active);
+    projected.add(required);
+    return { valid: true, required, already_active: false, auto_activate: true, projected: Array.from(projected), maximum };
+  }
+
   function groupsFor(mod) {
     return new Set([...(mod.groups || []), mod.type, mod.group].filter(Boolean));
   }
@@ -348,6 +376,7 @@
     spawnContextTokens,
     baseCompatibility,
     annotateInfluenceUpgradeTiers,
+    influenceCompatibility,
     groupsFor,
     groupConflict,
     rareAffixLimits,

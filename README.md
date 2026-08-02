@@ -3,7 +3,7 @@
 A static, GitHub Pages-ready Path of Exile 1 target-item builder and ChatGPT crafting-agent handoff.
 
 - Crafting knowledge package: **`poe1-crafting-knowledge-3.29.1.1-r3`**
-- Browser target ruleset: **`poe1-target-legality-3.29.1.1-r3`**
+- Browser target ruleset: **`poe1-target-legality-3.29.1.1-r6`**
 - Export schema: **`poe-target-forge/agent-target-v3`**
 
 ## What this release adds
@@ -90,3 +90,13 @@ This site validates target construction and prepares a strategy handoff. It does
 ## r5 UI and influence-level correction
 
 The modifier pool uses compact two-line family rows with a tier dropdown. RePoE influence entries that represent elevated upgrade outcomes are normalized to T0 and have no direct final-item level gate; the highest ordinary precursor tier and raw internal level are retained separately in the exported JSON for traceability.
+
+## r6 influence selection and limits
+
+- Influence modifiers are selectable without manually enabling their influence first.
+- Adding an influence modifier automatically enables the corresponding Shaper, Elder or Conqueror influence toggle.
+- The projected item state is checked before selection: a second distinct influence is allowed, while a third distinct influence modifier is disabled in the pool.
+- Once two influences are active, mods belonging to either active influence remain selectable, while all other influence toggles and third-influence mods are disabled.
+- An influence required by a selected modifier cannot be removed until that modifier is removed.
+
+The browser continues to derive influence candidates from the base-specific RePoE pool and then applies local base, spawn-weight, affix, group and item-state validation.

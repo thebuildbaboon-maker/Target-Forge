@@ -645,8 +645,14 @@
     if (state.itemLevel < safeNumber(mod.required_level, 1)) {
       reasons.push({ code:'ITEM_LEVEL', message:`Requires item level ${mod.required_level}.` });
     }
-    if (mod.influence && !state.influences.has(mod.influence)) {
-      reasons.push({ code:'INFLUENCE', message:`Requires ${humanize(mod.influence)} influence.` });
+
+    const influenceRule = POE_RULES.influenceCompatibility(mod, state.influences, { maximum:2 });
+    const projectedInfluences = new Set(state.influences);
+    if (options.forAdd && influenceRule.valid && influenceRule.required) projectedInfluences.add(influenceRule.required);
+    if (options.forAdd && !influenceRule.valid) {
+      reasons.push({ code:influenceRule.code || 'INFLUENCE_LIMIT', message:influenceRule.message || 'This modifier would require an illegal influence combination.' });
+    } else if (!options.forAdd && mod.influence && !state.influences.has(mod.influence)) {
+      reasons.push({ code:'INFLUENCE_MISSING', message:`The selected modifier requires ${humanize(mod.influence)} influence, but that influence is not active.` });
     }
     if (mod.source === 'crafted' && !state.constraints.allowCrafted) {
       reasons.push({ code:'CRAFTED_DISABLED', message:'Crafted modifiers are disabled by the target constraints.' });
@@ -680,10 +686,10 @@
     const projectedSynthesis = projectedSelected.some(m => m.source === 'synthesis');
     const projectedEldritch = projectedSelected.some(m => m.source === 'eldritch');
     const projectedFractured = projectedSelected.some(m => m.fractured);
-    if (projectedSynthesis && state.influences.size) reasons.push({code:'SYNTH_INFLUENCE', message:'Synthesised items cannot also carry Shaper, Elder or Conqueror influence.'});
-    if (projectedEldritch && state.influences.size) reasons.push({code:'ELDRITCH_INFLUENCE', message:'Eldritch implicits cannot coexist with Shaper, Elder or Conqueror influence.'});
+    if (projectedSynthesis && projectedInfluences.size) reasons.push({code:'SYNTH_INFLUENCE', message:'Synthesised items cannot also carry Shaper, Elder or Conqueror influence.'});
+    if (projectedEldritch && projectedInfluences.size) reasons.push({code:'ELDRITCH_INFLUENCE', message:'Eldritch implicits cannot coexist with Shaper, Elder or Conqueror influence.'});
     if (projectedSynthesis && projectedEldritch) reasons.push({code:'IMPLICIT_FAMILY', message:'Synthesised and Eldritch implicits cannot coexist; applying Eldritch implicits replaces Synthesis implicits.'});
-    if (projectedFractured && (projectedSynthesis || state.influences.size)) reasons.push({code:'FRACTURE_STATE', message:'A fractured target cannot also be synthesised or conventionally influenced.'});
+    if (projectedFractured && (projectedSynthesis || projectedInfluences.size)) reasons.push({code:'FRACTURE_STATE', message:'A fractured target cannot also be synthesised or conventionally influenced.'});
 
     return { valid: reasons.length === 0, reasons };
   }
@@ -758,11 +764,25 @@
   }
 
   function renderInfluences() {
-    els.influenceControls.innerHTML = INFLUENCES.map(inf => `
-      <label class="chip-check">
-        <input type="checkbox" data-influence="${inf}" ${state.influences.has(inf) ? 'checked' : ''} />
-        <span>${escapeHTML(inf)}</span>
-      </label>`).join('');
+    const incompatibleState = state.selectedMods.some(mod => mod.source === 'synthesis' || mod.source === 'eldritch' || mod.fractured);
+    els.influenceControls.innerHTML = INFLUENCES.map(inf => {
+      const active = state.influences.has(inf);
+      const requiredByMod = state.selectedMods.some(mod => mod.influence === inf);
+      const blockedByLimit = !active && state.influences.size >= 2;
+      const blockedByState = !active && incompatibleState;
+      const disabled = blockedByLimit || blockedByState;
+      const title = blockedByLimit
+        ? 'Two influences are already active. Remove one before adding another.'
+        : blockedByState
+          ? 'Conventional influence cannot be added to this synthesised, eldritch or fractured target.'
+          : requiredByMod
+            ? `Required by a selected ${humanize(inf)} modifier.`
+            : `Toggle ${humanize(inf)} influence.`;
+      return `<label class="chip-check ${disabled ? 'disabled' : ''} ${requiredByMod ? 'required' : ''}" title="${escapeHTML(title)}">
+        <input type="checkbox" data-influence="${inf}" ${active ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
+        <span>${escapeHTML(inf)}${requiredByMod ? ' •' : ''}</span>
+      </label>`;
+    }).join('');
   }
 
   function renderMechanicAccess() {
@@ -1411,15 +1431,18 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
       toast(validation.reasons[0]?.message || 'This modifier cannot be added.');
       return;
     }
+    const autoEnabledInfluence = mod.influence && !state.influences.has(mod.influence) ? mod.influence : null;
+    if (autoEnabledInfluence) state.influences.add(autoEnabledInfluence);
     state.selectedMods.push({...mod, fractured:Boolean(mod.fractured), elevated:Boolean(mod.elevated)});
     reconcileTargetConstraints(true);
-    renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
+    renderInfluences(); renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
+    if (autoEnabledInfluence) toast(`${humanize(autoEnabledInfluence)} influence enabled for the selected modifier.`);
   }
 
   function removeMod(id) {
     state.selectedMods = state.selectedMods.filter(mod => mod.id !== id);
     reconcileTargetConstraints(false);
-    renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
+    renderInfluences(); renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
   }
 
   function selectBase(id) {
@@ -1578,7 +1601,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     if (input.checked && (state.selectedMods.some(mod => mod.source === 'synthesis' || mod.source === 'eldritch' || mod.fractured))) { input.checked=false; toast('Influence cannot be added to this synthesised, eldritch or fractured target.'); return; }
     if (input.checked && state.influences.size >= 2) { input.checked=false; toast('An item can have at most two conventional influences.'); return; }
     input.checked ? state.influences.add(inf) : state.influences.delete(inf);
-    renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
+    renderInfluences(); renderMechanicAccess(); renderModList(); renderTarget(); renderLegality(); renderStrategy();
   });
 
   els.modSearch.addEventListener('input', () => { state.filters.query=els.modSearch.value; renderModList(); });
@@ -1669,7 +1692,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     state.dragModId=null;
   });
 
-  els.clearModsBtn.addEventListener('click', () => { state.selectedMods=[]; reconcileTargetConstraints(false); renderMechanicAccess();renderModList();renderTarget();renderLegality();renderStrategy(); });
+  els.clearModsBtn.addEventListener('click', () => { state.selectedMods=[]; reconcileTargetConstraints(false); renderInfluences();renderMechanicAccess();renderModList();renderTarget();renderLegality();renderStrategy(); });
   els.copyPobBtn.addEventListener('click', () => copyText(readableItemText()));
   els.copyStrategyBtn.addEventListener('click', () => copyText(JSON.stringify(buildAgentTarget(),null,2)));
   els.newTargetBtn.addEventListener('click', newTarget);

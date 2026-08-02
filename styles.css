@@ -95,6 +95,8 @@ button { color: inherit; }
 .chip-check input { position: absolute; opacity: 0; pointer-events: none; }
 .chip-check span { display: block; padding: 6px 9px; border-radius: 999px; border: 1px solid #323842; color: var(--muted); font-size: 9px; cursor: pointer; text-transform: capitalize; }
 .chip-check input:checked + span { color: #0b0c0e; background: var(--gold); border-color: var(--gold-bright); font-weight: 700; }
+.chip-check.disabled span { opacity: .38; cursor: not-allowed; border-style: dashed; }
+.chip-check.required span { box-shadow: inset 0 0 0 1px rgba(238, 203, 117, .18); }
 .constraint-grid { display: grid; gap: 7px; margin-bottom: 13px; }
 .toggle-row { display: flex; align-items: center; gap: 8px; color: #b8bbc0; font-size: 11px; cursor: pointer; }
 .toggle-row input, .availability-toggle input { accent-color: var(--gold); }
