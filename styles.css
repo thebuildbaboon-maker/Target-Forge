@@ -257,3 +257,51 @@ button { color: inherit; }
 .state-pill.active { border-color:#9c783c; color:var(--gold-bright); background:rgba(156,120,60,.15); }
 .item-mod-line.fractured { color:#d9b35c; }
 .required-mechanic-warning { color:#e49a73; font-size:10px; line-height:1.4; margin-top:8px; }
+
+/* Source-categorised compact modifier browser (r3) */
+.callout.success { border-color: rgba(110,195,154,.35); background: rgba(110,195,154,.06); }
+.mod-browser-header { padding-bottom: 10px; }
+.mod-toolbar { grid-template-columns: minmax(230px,1fr) 145px 175px auto; padding-bottom: 9px; }
+.source-pills { padding-bottom: 9px; }
+.source-pill { padding: 5px 9px; }
+.source-pill span { margin-left: 4px; opacity: .72; font-variant-numeric: tabular-nums; }
+.mod-list.source-categorized { padding: 0 12px 26px 18px; }
+.mod-source-group { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 7px; overflow: clip; background: #121419; }
+.mod-source-group > summary { list-style: none; cursor: pointer; min-height: 42px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 7px 10px; background: linear-gradient(180deg,#1a1d23,#16191e); border-bottom: 1px solid transparent; }
+.mod-source-group > summary::-webkit-details-marker { display: none; }
+.mod-source-group > summary::before { content: '›'; width: 14px; color: var(--gold); font-size: 18px; line-height: 1; transform: rotate(0deg); transition: transform .12s; position: absolute; }
+.mod-source-group[open] > summary::before { transform: rotate(90deg); }
+.mod-source-group[open] > summary { border-bottom-color: var(--line); }
+.source-summary-copy { min-width: 0; padding-left: 18px; display: flex; align-items: baseline; gap: 8px; }
+.source-summary-copy strong { color: #ddd5c5; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+.source-summary-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-size: 9px; }
+.source-summary-count { color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; }
+.source-group-body { padding: 5px 7px 7px; }
+.affix-source-section + .affix-source-section { margin-top: 6px; }
+.affix-source-section > header { height: 22px; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; color: #858b95; font-size: 8px; text-transform: uppercase; letter-spacing: .12em; }
+.affix-source-section > header b { color: #626873; font-size: 8px; }
+.compact-mod-rows { display: grid; gap: 3px; }
+.mod-row { min-height: 43px; display: grid; grid-template-columns: 22px minmax(0,1fr) 30px; align-items: center; gap: 7px; border: 1px solid #272c34; border-radius: 6px; padding: 4px 5px; background: #15181d; transition: border-color .12s, background .12s; }
+.mod-row:hover { border-color: #3c434e; background: #181c22; }
+.mod-row.unavailable { opacity: .52; }
+.mod-row.selected { border-color: var(--gold-dark); box-shadow: inset 2px 0 0 var(--gold); }
+.affix-marker { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 5px; font-size: 8px; font-weight: 800; border: 1px solid #343a43; background: #20242a; }
+.affix-marker.prefix { color: #91b7de; }
+.affix-marker.suffix { color: #d6a4c6; }
+.affix-marker.implicit { color: #b9a6e8; }
+.mod-row-copy { min-width: 0; }
+.mod-row-title { display: flex; align-items: baseline; gap: 6px; min-width: 0; color: #e4dfd5; font-size: 10px; line-height: 1.2; }
+.mod-row-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mod-row-title b { flex: none; color: var(--gold-bright); font-size: 8px; }
+.mod-row-meta { display: flex; gap: 8px; margin-top: 2px; color: #737a84; font-size: 8px; white-space: nowrap; overflow: hidden; }
+.mod-row-meta span { flex: none; }
+.mod-row-reason { margin-top: 2px; color: #ca8b88; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compact-add { width: 27px; min-width: 27px; height: 27px; padding: 0; border-radius: 6px; font-size: 14px; }
+.mod-list:not(.compact) .mod-row { min-height: 56px; padding: 7px; }
+.mod-list:not(.compact) .mod-row-title { font-size: 11px; }
+.mod-list:not(.compact) .mod-row-meta, .mod-list:not(.compact) .mod-row-reason { font-size: 9px; }
+
+@media (max-width: 1180px) {
+  .mod-toolbar { grid-template-columns: 1fr 140px 165px; }
+  .availability-toggle { grid-column: 1 / -1; min-height: 26px; }
+}

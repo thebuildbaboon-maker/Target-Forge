@@ -144,12 +144,12 @@
         <div class="mod-browser-header">
           <div>
             <span class="eyebrow">Applicable modifier pool</span>
-            <h2>Add affixes</h2>
-            <p id="poolSummary">Choose a base to see applicable modifiers.</p>
+            <h2>Modifiers by crafting source</h2>
+            <p id="poolSummary">Choose a base to see modifiers that pass the browser rules.</p>
           </div>
           <div class="view-toggle" aria-label="Modifier density">
-            <button class="view-button active" data-density="comfortable" title="Comfortable view">▤</button>
-            <button class="view-button" data-density="compact" title="Compact view">☷</button>
+            <button class="view-button" data-density="comfortable" title="Comfortable view">▤</button>
+            <button class="view-button active" data-density="compact" title="Compact view">☷</button>
           </div>
         </div>
 
@@ -166,7 +166,7 @@
             <option value="implicit">Implicits</option>
           </select>
           <select id="sourceFilter" class="select-input toolbar-select" aria-label="Modifier source">
-            <option value="all">All sources</option>
+            <option value="all">All source groups</option>
           </select>
           <label class="availability-toggle">
             <input id="showUnavailable" type="checkbox" checked />
@@ -227,9 +227,9 @@
         <button id="closeDataBtn" class="icon-button" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
-        <div class="callout warning">
-          <strong>Prototype scope</strong>
-          <p>The included offline dataset demonstrates the complete interface and core checks. Loading RePoE adds current bases and a much larger applicable mod pool. Exotic mechanics may still need explicit rule adapters.</p>
+        <div class="callout success">
+          <strong>Browser-enforced base rules</strong>
+          <p>The RePoE candidate index is filtered again in this site using base tags, item class, modifier domain, ordered spawn weights and explicit source mappings. Base-incompatible modifiers never enter the selectable list.</p>
         </div>
 
         <div class="data-actions-grid">
@@ -242,7 +242,7 @@
 
           <article class="data-option">
             <h3>Import downloaded files</h3>
-            <p>Select <code>base_items.min.json</code>, <code>mods.min.json</code>, and <code>mods_by_base.min.json</code>. Stat translations may also be selected; the adapter uses readable stat-id fallback text when an exact translation is unavailable.</p>
+            <p>Select <code>base_items.min.json</code>, <code>mods.min.json</code>, and <code>mods_by_base.min.json</code>. You may also include stat translations, crafting-bench options, essences and item classes. Unknown optional files are ignored.</p>
             <label class="file-drop">
               <input id="dataFiles" type="file" accept=".json,application/json" multiple />
               <span>Choose RePoE JSON files</span>
@@ -256,8 +256,11 @@
           <pre>https://repoe-fork.github.io/base_items.min.json
 https://repoe-fork.github.io/mods.min.json
 https://repoe-fork.github.io/mods_by_base.min.json
-https://repoe-fork.github.io/stat_translations.min.json</pre>
-          <p>The adapter uses the selected base’s tags and RePoE’s precomputed <code>mods_by_base</code> groups. The adapter formats stat IDs into readable fallback text when exact in-game translation data is unavailable. Exceptional item-state rules come from the installed 3.29.1.1 knowledge package.</p>
+https://repoe-fork.github.io/stat_translations.min.json
+https://repoe-fork.github.io/crafting_bench_options.min.json
+https://repoe-fork.github.io/essences.min.json
+https://repoe-fork.github.io/item_classes.min.json</pre>
+          <p>The adapter treats <code>mods_by_base</code> as a candidate index, not final authority. Every entry must also pass the local rules engine before it is displayed. Item-level, influence, affix-capacity and modifier-group rules then control whether a displayed entry is currently selectable.</p>
         </details>
       </div>
       <div class="modal-footer">
@@ -298,6 +301,7 @@ https://repoe-fork.github.io/stat_translations.min.json</pre>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="rules-engine.js"></script>
   <script src="mechanics-data.js"></script>
   <script src="sample-data.js"></script>
   <script src="app.js"></script>

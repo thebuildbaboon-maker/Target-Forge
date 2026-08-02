@@ -5,7 +5,10 @@
     base_items: 'https://repoe-fork.github.io/base_items.min.json',
     mods: 'https://repoe-fork.github.io/mods.min.json',
     mods_by_base: 'https://repoe-fork.github.io/mods_by_base.min.json',
-    stat_translations: 'https://repoe-fork.github.io/stat_translations.min.json'
+    stat_translations: 'https://repoe-fork.github.io/stat_translations.min.json',
+    crafting_bench_options: 'https://repoe-fork.github.io/crafting_bench_options.min.json',
+    essences: 'https://repoe-fork.github.io/essences.min.json',
+    item_classes: 'https://repoe-fork.github.io/item_classes.min.json'
   };
 
   const EQUIPMENT_CLASSES = new Set([
@@ -17,11 +20,14 @@
   ]);
   const INFLUENCES = ['shaper','elder','crusader','redeemer','hunter','warlord'];
   const SOURCE_ORDER = ['natural','crafted','essence','fossil','harvest','delve','incursion','betrayal','influence','eldritch','recombinator','infamous','synthesis','corruption','allflame','other'];
+  const POE_RULES = window.POE_TARGET_RULES;
+  if (!POE_RULES) throw new Error('rules-engine.js must load before app.js');
+  const SOURCE_META = POE_RULES.SOURCE_META;
   const MECHANIC_DATA = window.POE_CRAFTING_MECHANICS || { package_id:'unversioned', patch:'unknown', mechanics:[], categories:[] };
   const MECHANIC_BY_ID = new Map(MECHANIC_DATA.mechanics.map(mechanic => [mechanic.id, mechanic]));
   const DEFAULT_MECHANIC_ACCESS = new Set(MECHANIC_DATA.mechanics.filter(mechanic => mechanic.default).map(mechanic => mechanic.id));
   const EXPORT_POOL_LIMIT = 1500;
-  const MAX_RENDERED_MODS = 450;
+  const MAX_RENDERED_MODS = 1200;
 
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -54,7 +60,8 @@
     constraints: { openPrefix: false, openSuffix: false, allowCrafted: true, ssf: false, notes: '' },
     mechanicAccess: new Set(DEFAULT_MECHANIC_ACCESS),
     allowPurchasedBase: true,
-    filters: { query: '', side: 'all', source: 'all', showUnavailable: true, density: 'comfortable' },
+    filters: { query: '', side: 'all', source: 'all', showUnavailable: true, density: 'compact' },
+    openSourceGroups: new Set(['natural','crafted','essence','influence']),
     exportMode: 'agent',
     dragModId: null
   };
@@ -117,6 +124,7 @@
   }
 
   function inferSource(raw, hints = []) {
+    if (raw.is_essence_only) return 'essence';
     const haystack = [raw.generation_type, raw.domain, ...hints].join(' ').toLowerCase();
     if (haystack.includes('essence')) return 'essence';
     if (haystack.includes('eldritch') || haystack.includes('searing exarch') || haystack.includes('eater of worlds')) return 'eldritch';
@@ -172,18 +180,40 @@
       notes: raw.domain ? `Domain: ${raw.domain}` : '',
       raw_generation_type: raw.generation_type,
       raw_domain: raw.domain,
+      is_essence_only: Boolean(raw.is_essence_only),
+      adds_tags: raw.adds_tags || [],
+      implicit_tags: raw.implicit_tags || raw.crafting_tags || [],
       spawn_weights: raw.spawn_weights || [],
-      generation_weights: raw.generation_weights || []
+      generation_weights: raw.generation_weights || [],
+      candidate_scope: hintMeta.scope || 'base',
+      candidate_sources: Array.from(hintMeta.sources || []),
+      allowed_item_classes: Array.from(hintMeta.allowedItemClasses || [])
     };
   }
 
-  function addCandidate(candidateMap, baseId, modId, hint, weight) {
+  function addCandidate(candidateMap, baseId, modId, hint, weight, provenance = {}) {
     if (!candidateMap.has(baseId)) candidateMap.set(baseId, new Map());
     const byMod = candidateMap.get(baseId);
-    if (!byMod.has(modId)) byMod.set(modId, { hints: new Set(), weight: null });
+    if (!byMod.has(modId)) byMod.set(modId, {
+      hints: new Set(), weight: null, scopes: new Set(), sources: new Set(), allowedItemClasses: new Set()
+    });
     const meta = byMod.get(modId);
     if (hint) meta.hints.add(hint);
     if (typeof weight === 'number' && (meta.weight === null || weight > meta.weight)) meta.weight = weight;
+    if (provenance.scope) meta.scopes.add(provenance.scope);
+    if (provenance.source) meta.sources.add(provenance.source);
+    if (provenance.itemClass) meta.allowedItemClasses.add(provenance.itemClass);
+  }
+
+  function finalizeCandidateMeta(meta) {
+    const scopeOrder = ['base','class','special','unknown'];
+    return {
+      hints: meta.hints,
+      weight: meta.weight,
+      scope: scopeOrder.find(scope => meta.scopes.has(scope)) || 'unknown',
+      sources: meta.sources,
+      allowedItemClasses: meta.allowedItemClasses
+    };
   }
 
   function recursivelyCollectKnownModIds(node, rawMods, callback, path = []) {
@@ -207,6 +237,11 @@
       }
       recursivelyCollectKnownModIds(child, rawMods, callback, [...path, key]);
     }
+  }
+
+  function itemClassMatches(base, itemClass) {
+    const baseTokens = POE_RULES.classTokens(base?.item_class);
+    return Array.from(POE_RULES.classTokens(itemClass)).some(token => baseTokens.has(token));
   }
 
   function normalizeRepoeData(files) {
@@ -254,7 +289,9 @@
           const modsNode = tagSet.mods || {};
           tagBases.forEach(baseId => {
             recursivelyCollectKnownModIds(modsNode, rawMods, (modId, hint, weight) => {
-              addCandidate(candidateMap, baseId, modId, hint, weight);
+              addCandidate(candidateMap, baseId, modId, hint, weight, {
+                scope:'base', source:`mods_by_base:${className}/${branchKey}`, itemClass:baseById.get(baseId)?.item_class
+              });
             }, [className, branchKey]);
           });
         } else if (['synthesis','essences'].includes(branchKey.toLowerCase())) {
@@ -266,7 +303,38 @@
 
     for (const {baseIds, extras} of baseClassExtras.values()) {
       for (const baseId of baseIds) {
-        for (const extra of extras) addCandidate(candidateMap, baseId, extra.modId, extra.hint, extra.weight);
+        for (const extra of extras) addCandidate(candidateMap, baseId, extra.modId, extra.hint, extra.weight, {
+          scope:'class', source:'mods_by_base:class-special', itemClass:baseById.get(baseId)?.item_class
+        });
+      }
+    }
+
+    const benchOptions = unroot(files.crafting_bench_options) || [];
+    if (Array.isArray(benchOptions)) {
+      for (const option of benchOptions) {
+        const modId = option?.actions?.add_mod;
+        if (!modId || !rawMods[modId]) continue;
+        const classes = Array.isArray(option.item_classes) ? option.item_classes : [];
+        for (const base of bases) {
+          if (!classes.some(itemClass => itemClassMatches(base, itemClass))) continue;
+          addCandidate(candidateMap, base.id, modId, `crafting bench ${option.master || ''} ${option.bench_tier || ''}`, null, {
+            scope:'class', source:'crafting_bench_options', itemClass:base.item_class
+          });
+        }
+      }
+    }
+
+    const essences = unroot(files.essences) || {};
+    for (const [essenceId, essence] of Object.entries(essences)) {
+      const classMods = essence?.mods || {};
+      for (const [itemClass, modId] of Object.entries(classMods)) {
+        if (!modId || !rawMods[modId]) continue;
+        for (const base of bases) {
+          if (!itemClassMatches(base, itemClass)) continue;
+          addCandidate(candidateMap, base.id, modId, `essence ${essence.name || essenceId} ${itemClass}`, null, {
+            scope:'class', source:`essences:${essenceId}`, itemClass:base.item_class
+          });
+        }
       }
     }
 
@@ -289,41 +357,58 @@
       normalizedCache,
       getModsForBase(base) {
         const candidateMeta = candidateMap.get(base.id);
-        const result = [];
-        if (candidateMeta) {
-          for (const [modId, meta] of candidateMeta.entries()) {
-            const raw = rawMods[modId];
-            if (!raw) continue;
-            const cacheKey = `${modId}|${Array.from(meta.hints).sort().join(',')}`;
-            let mod = normalizedCache.get(cacheKey);
-            if (!mod) {
-              mod = normalizeRemoteMod(modId, raw, meta);
-              normalizedCache.set(cacheKey, mod);
-            }
-            result.push(mod);
-          }
-        } else {
-          // Fallback for classes not present in mods_by_base: first matching spawn-weight tag.
-          for (const [modId, raw] of Object.entries(rawMods)) {
-            if (!raw || !Array.isArray(raw.spawn_weights)) continue;
-            const match = raw.spawn_weights.find(rule => base.tags.includes(rule.tag));
-            if (!match || !match.weight) continue;
-            result.push(normalizeRemoteMod(modId, raw, { hints: new Set([raw.generation_type]), weight: match.weight }));
-          }
+        const accepted = [];
+        const rejected = [];
+        if (!candidateMeta) {
+          this.poolDiagnostics.set(base.id, { candidates:0, accepted:0, rejected:0, rejectedExamples:[], coverage:'no-base-index' });
+          return accepted;
         }
-        assignDerivedTiers(result);
-        return result;
-      }
+        for (const [modId, rawMeta] of candidateMeta.entries()) {
+          const raw = rawMods[modId];
+          if (!raw) continue;
+          const meta = finalizeCandidateMeta(rawMeta);
+          const cacheKey = `${modId}|${Array.from(meta.hints).sort().join(',')}|${meta.scope}|${Array.from(meta.allowedItemClasses).sort().join(',')}`;
+          let mod = normalizedCache.get(cacheKey);
+          if (!mod) {
+            mod = normalizeRemoteMod(modId, raw, meta);
+            normalizedCache.set(cacheKey, mod);
+          }
+          const legality = POE_RULES.baseCompatibility(mod, base, { requireCandidateEvidence:true });
+          mod.base_rule_evaluation = legality;
+          if (legality.valid) accepted.push(mod);
+          else rejected.push({ id:mod.id, text:mod.display, reasons:legality.reasons });
+        }
+        assignDerivedTiers(accepted);
+        this.poolDiagnostics.set(base.id, {
+          candidates:candidateMeta.size,
+          accepted:accepted.length,
+          rejected:rejected.length,
+          rejectedExamples:rejected.slice(0,20),
+          coverage:'repoe-index-plus-browser-rules'
+        });
+        return accepted;
+      },
+      poolDiagnostics: new Map()
+
     };
   }
 
   function normalizeDemoData(data) {
     const bases = data.bases.slice().sort((a,b) => a.item_class.localeCompare(b.item_class) || a.name.localeCompare(b.name));
+    const poolDiagnostics = new Map();
     return {
-      mode: 'demo', metadata: data.metadata, bases, baseById: new Map(bases.map(b => [b.id,b])), mods: data.mods,
+      mode: 'demo', metadata: data.metadata, bases, baseById: new Map(bases.map(b => [b.id,b])), mods: data.mods, poolDiagnostics,
       getModsForBase(base) {
-        const result = data.mods.filter(mod => appliesToBase(mod, base));
-        return result.slice();
+        const candidates = data.mods.map(mod => ({...mod, candidate_scope:'demo', candidate_sources:['bundled-demo-applies_to']}));
+        const accepted = [];
+        const rejected = [];
+        for (const mod of candidates) {
+          const legality = POE_RULES.baseCompatibility(mod, base, { requireCandidateEvidence:false });
+          mod.base_rule_evaluation = legality;
+          if (legality.valid) accepted.push(mod); else rejected.push({id:mod.id,text:mod.display,reasons:legality.reasons});
+        }
+        poolDiagnostics.set(base.id, {candidates:candidates.length,accepted:accepted.length,rejected:rejected.length,rejectedExamples:rejected.slice(0,20),coverage:'bundled-demo-rules'});
+        return accepted;
       }
     };
   }
@@ -343,61 +428,32 @@
   }
 
   function appliesToBase(mod, base) {
-    if (!base) return false;
-    if (!Array.isArray(mod.applies_to) || !mod.applies_to.length) return true;
-    const baseTokens = new Set([
-      ...base.tags,
-      base.item_class,
-      String(base.item_class).toLowerCase().replace(/\s+/g,'_'),
-      String(base.item_class).toLowerCase().replace(/\s+/g,'')
-    ]);
-    return mod.applies_to.some(token => baseTokens.has(token));
+    return POE_RULES.baseCompatibility(mod, base, { requireCandidateEvidence: state.data?.mode === 'repoe' }).valid;
   }
 
   function currentBase() {
     return state.data?.baseById.get(state.selectedBaseId) || null;
   }
 
-  let applicableCache = { key: null, mods: [] };
-  function applicableMods() {
+  let applicableCache = { key: null, mods: [], diagnostics: null };
+  function applicablePool() {
     const base = currentBase();
-    if (!base) return [];
+    if (!base) return {mods:[], diagnostics:null};
     const key = `${state.data.metadata.name}|${base.id}`;
     if (applicableCache.key !== key) {
-      applicableCache = { key, mods: state.data.getModsForBase(base) };
+      const mods = state.data.getModsForBase(base);
+      applicableCache = { key, mods, diagnostics: state.data.poolDiagnostics?.get(base.id) || null };
     }
-    return applicableCache.mods;
+    return applicableCache;
   }
+  function applicableMods() { return applicablePool().mods; }
 
   function rareAffixLimits(base = currentBase()) {
-    const limits = { prefix: 3, suffix: 3, implicit: 3 };
-    if (!base) return limits;
-    const cls = String(base.item_class || '').toLowerCase().replace(/\s+/g, '');
-    const name = String(base.name || '').toLowerCase();
-    if (cls.includes('jewel') || cls.includes('trinket') || cls.includes('graft')) {
-      limits.prefix = 2;
-      limits.suffix = 2;
-    }
-    if (name === 'focused amulet') {
-      limits.prefix = 2;
-      limits.suffix = 1;
-    } else if (name === 'simplex amulet') {
-      limits.prefix = 1;
-      limits.suffix = 2;
-    }
-    const explicitPrefixLimit = safeNumber(base.affix_limits?.prefix ?? base.maximum_prefixes, NaN);
-    const explicitSuffixLimit = safeNumber(base.affix_limits?.suffix ?? base.maximum_suffixes, NaN);
-    if (Number.isFinite(explicitPrefixLimit)) limits.prefix = explicitPrefixLimit;
-    if (Number.isFinite(explicitSuffixLimit)) limits.suffix = explicitSuffixLimit;
-    return limits;
+    return POE_RULES.rareAffixLimits(base);
   }
 
   function affixLimits(base = currentBase(), rarity = state.rarity) {
-    const rare = rareAffixLimits(base);
-    if (rarity === 'magic') {
-      return { prefix: Math.min(1, rare.prefix), suffix: Math.min(1, rare.suffix), implicit: rare.implicit };
-    }
-    return rare;
+    return POE_RULES.affixLimits(base, rarity);
   }
 
   function slotLimit(affix) {
@@ -584,7 +640,10 @@
     const projectedSelected = isSelected || !options.forAdd ? selected : [...selected, mod];
 
     if (!base) reasons.push({ code:'NO_BASE', message:'Choose an item base first.' });
-    else if (!appliesToBase(mod, base) && state.data.mode === 'demo') reasons.push({ code:'WRONG_BASE', message:'This modifier does not apply to the selected base.' });
+    else {
+      const baseValidation = POE_RULES.baseCompatibility(mod, base, { requireCandidateEvidence: state.data.mode === 'repoe' });
+      baseValidation.reasons.forEach(reason => reasons.push(reason));
+    }
 
     if (state.itemLevel < safeNumber(mod.required_level, 1)) {
       reasons.push({ code:'ITEM_LEVEL', message:`Requires item level ${mod.required_level}.` });
@@ -609,15 +668,9 @@
       }
     }
 
-    const modGroups = new Set([...(mod.groups || []), mod.type, mod.group].filter(Boolean));
-    const conflict = selected.find(existing => {
-      if (existing.id === mod.id) return false;
-      const existingGroups = [...(existing.groups || []), existing.type, existing.group].filter(Boolean);
-      return existingGroups.some(group => modGroups.has(group));
-    });
-    if (conflict) {
-      const shared = [...modGroups].find(group => [...(conflict.groups || []), conflict.type, conflict.group].filter(Boolean).includes(group));
-      reasons.push({ code:'GROUP_CONFLICT', message:`Conflicts with “${conflict.display}”${shared ? ` in modifier group ${shared}` : ''}.` });
+    const conflictInfo = POE_RULES.groupConflict(mod, selected);
+    if (conflictInfo) {
+      reasons.push({ code:'GROUP_CONFLICT', message:`Conflicts with “${conflictInfo.conflict.display}” in modifier group ${conflictInfo.group}.` });
     }
 
     if (mod.source === 'crafted') {
@@ -669,12 +722,12 @@
 
   function sourceLabel(mod) {
     if (mod.source === 'influence' && mod.influence) return `${humanize(mod.influence)} influence`;
-    return humanize(mod.source || 'other');
+    return SOURCE_META[mod.source || 'other']?.short || humanize(mod.source || 'other');
   }
 
   function setData(data, preferredBaseId = null) {
     state.data = data;
-    applicableCache = {key:null,mods:[]};
+    applicableCache = {key:null,mods:[],diagnostics:null};
     const preferred = preferredBaseId && data.baseById.has(preferredBaseId) ? preferredBaseId : null;
     const defaultBase = preferred || data.bases.find(b => /Two-Toned Boots/i.test(b.name))?.id || data.bases[0]?.id || null;
     state.selectedBaseId = defaultBase;
@@ -703,7 +756,7 @@
       els.dataModeDetail.textContent = `${state.data.bases.length} bases and ${state.data.mods.length} representative modifiers. Load RePoE for current data.`;
     } else {
       els.dataModeLabel.textContent = md.name || 'RePoE data loaded';
-      els.dataModeDetail.textContent = `${state.data.bases.length.toLocaleString()} equipment bases. Mod pools are generated per base from RePoE.`;
+      els.dataModeDetail.textContent = `${state.data.bases.length.toLocaleString()} equipment bases. Candidate pools are revalidated locally before display.`;
     }
   }
 
@@ -788,24 +841,65 @@
   }
 
   function allSources(mods) {
-    return Array.from(new Set(mods.map(m => m.source || 'other'))).sort((a,b) => SOURCE_ORDER.indexOf(a)-SOURCE_ORDER.indexOf(b));
+    return Array.from(new Set(mods.map(m => m.source || 'other'))).sort((a,b) => { const ai=SOURCE_ORDER.indexOf(a), bi=SOURCE_ORDER.indexOf(b); return (ai<0?999:ai)-(bi<0?999:bi); });
+  }
+
+  function sourceMeta(source) {
+    return SOURCE_META[source] || { label:humanize(source), short:humanize(source), description:'Special modifier source.' };
   }
 
   function renderSourceControls() {
     const sources = allSources(applicableMods());
     const current = sources.includes(state.filters.source) ? state.filters.source : 'all';
     state.filters.source = current;
-    els.sourceFilter.innerHTML = '<option value="all">All sources</option>' + sources.map(source => `<option value="${escapeHTML(source)}" ${current===source?'selected':''}>${escapeHTML(humanize(source))}</option>`).join('');
-    els.sourcePills.innerHTML = [`<button class="source-pill ${current==='all'?'active':''}" data-source-pill="all">All</button>`]
-      .concat(sources.map(source => `<button class="source-pill ${current===source?'active':''}" data-source-pill="${escapeHTML(source)}">${escapeHTML(humanize(source))}</button>`)).join('');
+    els.sourceFilter.innerHTML = '<option value="all">All source groups</option>' + sources.map(source => {
+      const meta = sourceMeta(source);
+      return `<option value="${escapeHTML(source)}" ${current===source?'selected':''}>${escapeHTML(meta.label)}</option>`;
+    }).join('');
+    els.sourcePills.innerHTML = [`<button class="source-pill ${current==='all'?'active':''}" data-source-pill="all">All sources</button>`]
+      .concat(sources.map(source => {
+        const count = applicableMods().filter(mod => mod.source === source).length;
+        return `<button class="source-pill ${current===source?'active':''}" data-source-pill="${escapeHTML(source)}">${escapeHTML(sourceMeta(source).short)} <span>${count}</span></button>`;
+      })).join('');
   }
 
   function modSearchText(mod) {
     return [mod.id,mod.name,mod.display,mod.affix,mod.source,mod.influence,mod.type,...(mod.tags||[]),...(mod.stats||[]).map(s=>s.id)].join(' ').toLowerCase();
   }
 
+  function affixLabel(affix) {
+    return affix === 'prefix' ? 'Prefixes' : affix === 'suffix' ? 'Suffixes' : affix === 'implicit' ? 'Implicits' : humanize(affix);
+  }
+
+  function renderModRow(mod) {
+    const validation = validateMod(mod, {forAdd:true});
+    const selected = state.selectedMods.some(existing => existing.id === mod.id);
+    const reason = validation.reasons[0]?.message || '';
+    const metaParts = [
+      mod.tier || null,
+      `ilvl ${mod.required_level}`,
+      mod.influence ? humanize(mod.influence) : null,
+      mod.weight !== null && mod.weight !== undefined ? `w ${mod.weight}` : null
+    ].filter(Boolean);
+    const title = [mod.id, `Group: ${mod.type || mod.group || 'unknown'}`, ...(validation.reasons || []).map(entry => entry.message)].join('\n');
+    return `
+      <div class="mod-row ${validation.valid?'':'unavailable'} ${selected?'selected':''}" data-mod-card="${escapeHTML(mod.id)}" title="${escapeHTML(title)}">
+        <span class="affix-marker ${escapeHTML(mod.affix)}" aria-label="${escapeHTML(mod.affix)}">${mod.affix==='prefix'?'P':mod.affix==='suffix'?'S':'I'}</span>
+        <div class="mod-row-copy">
+          <div class="mod-row-title">
+            <span>${escapeHTML(mod.display)}</span>
+            ${mod.tier ? `<b>${escapeHTML(mod.tier)}</b>` : ''}
+          </div>
+          <div class="mod-row-meta">${metaParts.map(part => `<span>${escapeHTML(part)}</span>`).join('')}</div>
+          ${reason ? `<div class="mod-row-reason">${escapeHTML(reason)}</div>` : ''}
+        </div>
+        <button class="add-mod-btn compact-add" data-add-mod="${escapeHTML(mod.id)}" ${validation.valid?'':'disabled'} aria-label="${selected?'Modifier already added':`Add ${escapeHTML(mod.display)}`}">${selected?'✓':'+'}</button>
+      </div>`;
+  }
+
   function renderModList() {
-    const mods = applicableMods();
+    const pool = applicablePool();
+    const mods = pool.mods;
     const q = state.filters.query.trim().toLowerCase();
     let filtered = mods.filter(mod => {
       if (state.filters.side !== 'all' && mod.affix !== state.filters.side) return false;
@@ -818,63 +912,61 @@
 
     filtered.sort((a,b) => {
       const sideOrder = {prefix:0,suffix:1,implicit:2,other:3};
-      return (sideOrder[a.affix]??9)-(sideOrder[b.affix]??9) ||
-        SOURCE_ORDER.indexOf(a.source)-SOURCE_ORDER.indexOf(b.source) ||
+      return SOURCE_ORDER.indexOf(a.source)-SOURCE_ORDER.indexOf(b.source) ||
+        (sideOrder[a.affix]??9)-(sideOrder[b.affix]??9) ||
         safeNumber(b.required_level)-safeNumber(a.required_level) ||
         a.display.localeCompare(b.display);
     });
 
     const totalFiltered = filtered.length;
     filtered = filtered.slice(0, MAX_RENDERED_MODS);
-    const selectedCountTotal = state.selectedMods.length;
-    els.poolSummary.textContent = `${mods.length.toLocaleString()} applicable mods · ${selectedCountTotal} selected${totalFiltered > MAX_RENDERED_MODS ? ` · showing first ${MAX_RENDERED_MODS.toLocaleString()} matches` : ''}`;
+    const selectedTotal = state.selectedMods.length;
+    const diagnostics = pool.diagnostics;
+    const rejectedText = diagnostics?.rejected ? ` · ${diagnostics.rejected.toLocaleString()} rejected by base rules` : '';
+    els.poolSummary.textContent = `${mods.length.toLocaleString()} legal-on-base mods${diagnostics?.candidates ? ` from ${diagnostics.candidates.toLocaleString()} candidates` : ''}${rejectedText} · ${selectedTotal} selected${totalFiltered > MAX_RENDERED_MODS ? ` · first ${MAX_RENDERED_MODS.toLocaleString()} matches shown` : ''}`;
 
     if (!currentBase()) {
       els.modList.innerHTML = '<div class="mod-list-empty">Choose a base to populate the modifier browser.</div>';
       return;
     }
     if (!filtered.length) {
-      els.modList.innerHTML = '<div class="mod-list-empty">No modifiers match these filters.<br>Try a broader search or enable unavailable mods.</div>';
+      els.modList.innerHTML = '<div class="mod-list-empty">No legal modifiers match these filters.<br>Try another source, side or search.</div>';
       return;
     }
 
-    const groups = new Map();
+    const sourceGroups = new Map();
     for (const mod of filtered) {
-      const key = `${humanize(mod.affix)} · ${humanize(mod.source)}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(mod);
+      const source = mod.source || 'other';
+      if (!sourceGroups.has(source)) sourceGroups.set(source, new Map());
+      const byAffix = sourceGroups.get(source);
+      if (!byAffix.has(mod.affix)) byAffix.set(mod.affix, []);
+      byAffix.get(mod.affix).push(mod);
     }
 
     const html = [];
-    for (const [groupName, groupMods] of groups.entries()) {
-      html.push(`<div class="mod-group-heading"><h3>${escapeHTML(groupName)}</h3><span>${groupMods.length}</span></div>`);
-      for (const mod of groupMods) {
-        const validation = validateMod(mod, {forAdd:true});
-        const selected = state.selectedMods.some(existing => existing.id === mod.id);
-        const sourceClass = mod.source === 'influence' ? 'influence' : mod.source;
-        const details = [
-          `<span class="detail-chip ${escapeHTML(mod.affix)}">${escapeHTML(mod.affix)}</span>`,
-          `<span class="detail-chip ${escapeHTML(sourceClass)}">${escapeHTML(sourceLabel(mod))}</span>`,
-          mod.tier ? `<span class="detail-chip">${escapeHTML(mod.tier)}</span>` : '',
-          `<span class="detail-chip">ilvl ${escapeHTML(mod.required_level)}</span>`,
-          mod.weight !== null && mod.weight !== undefined ? `<span class="detail-chip">weight ${escapeHTML(mod.weight)}</span>` : ''
-        ].join('');
-        html.push(`
-          <article class="mod-card ${validation.valid?'':'unavailable'} ${selected?'selected':''}" data-mod-card="${escapeHTML(mod.id)}">
-            <div class="mod-main">
-              <div class="mod-title-row">
-                <span class="mod-name">${escapeHTML(mod.display)}</span>
-                ${mod.tier ? `<span class="mod-tier">${escapeHTML(mod.tier)}</span>` : ''}
-              </div>
-              <div class="mod-details">${details}</div>
-              ${validation.valid ? '' : `<div class="mod-reason">${escapeHTML(validation.reasons[0]?.message || 'Unavailable')}</div>`}
-              <div class="mod-id">${escapeHTML(mod.id)} · group ${escapeHTML(mod.type || 'unknown')}</div>
-            </div>
-            <button class="add-mod-btn" data-add-mod="${escapeHTML(mod.id)}" ${validation.valid?'':'disabled'}>${selected?'Added':'Add'}</button>
-          </article>`);
+    for (const source of SOURCE_ORDER.filter(source => sourceGroups.has(source))) {
+      const byAffix = sourceGroups.get(source);
+      const groupMods = Array.from(byAffix.values()).flat();
+      const availableCount = groupMods.filter(mod => validateMod(mod,{forAdd:true}).valid).length;
+      const hasSelected = groupMods.some(mod => state.selectedMods.some(selected => selected.id === mod.id));
+      const isOpen = q || state.filters.source !== 'all' || state.openSourceGroups.has(source) || hasSelected;
+      const meta = sourceMeta(source);
+      html.push(`<details class="mod-source-group" data-source-group="${escapeHTML(source)}" ${isOpen?'open':''}>
+        <summary>
+          <span class="source-summary-copy"><strong>${escapeHTML(meta.label)}</strong><small>${escapeHTML(meta.description)}</small></span>
+          <span class="source-summary-count">${availableCount}/${groupMods.length}</span>
+        </summary>
+        <div class="source-group-body">`);
+      for (const affix of ['prefix','suffix','implicit','other']) {
+        const group = byAffix.get(affix);
+        if (!group?.length) continue;
+        html.push(`<section class="affix-source-section"><header><span>${escapeHTML(affixLabel(affix))}</span><b>${group.length}</b></header><div class="compact-mod-rows">`);
+        group.forEach(mod => html.push(renderModRow(mod)));
+        html.push('</div></section>');
       }
+      html.push('</div></details>');
     }
-    els.modList.className = `mod-list ${state.filters.density === 'compact' ? 'compact' : ''}`;
+    els.modList.className = `mod-list source-categorized ${state.filters.density === 'compact' ? 'compact' : ''}`;
     els.modList.innerHTML = html.join('');
   }
 
@@ -1032,7 +1124,13 @@
       modifier_groups: Array.from(new Set([...(mod.groups || []), mod.type, mod.group].filter(Boolean))),
       tags: mod.tags || [],
       stats: mod.stats || [],
-      target_state: { fractured: Boolean(mod.fractured), elevated: Boolean(mod.elevated) }
+      target_state: { fractured: Boolean(mod.fractured), elevated: Boolean(mod.elevated) },
+      base_compatibility: {
+        ruleset_id: POE_RULES.RULESET_ID,
+        candidate_scope: mod.candidate_scope || null,
+        candidate_sources: mod.candidate_sources || [],
+        evidence: (mod.base_rule_evaluation || POE_RULES.baseCompatibility(mod, currentBase(), {requireCandidateEvidence:state.data?.mode==='repoe'})).evidence
+      }
     };
     if (includeWeights) result.spawn_weight_for_base = mod.weight ?? null;
     return result;
@@ -1050,12 +1148,13 @@
       split: false
     };
     return {
-      schema: 'poe-target-forge/agent-target-v2',
+      schema: 'poe-target-forge/agent-target-v3',
       knowledge_package_id: MECHANIC_DATA.package_id,
       generated_at: new Date().toISOString(),
       game: 'Path of Exile 1',
       requested_rules_patch: MECHANIC_DATA.patch,
       data_snapshot: state.data.metadata,
+      builder_ruleset_id: POE_RULES.RULESET_ID,
       evaluation_policy: {
         objective: 'Find the best legal crafting route under the allowed-mechanics and user constraints.',
         exact_probability_policy: 'Do not invent odds. Use known deterministic rules, supplied spawn weights, in-game displayed chances, or label probability unknown.',
@@ -1091,7 +1190,8 @@
         prefix_count: selectedCount('prefix'),
         suffix_count: selectedCount('suffix'),
         implicit_count: selectedCount('implicit'),
-        capacities: affixLimits()
+        capacities: affixLimits(),
+        base_pool_diagnostics: applicablePool().diagnostics
       }
     };
   }
@@ -1117,7 +1217,7 @@
     const strategy = buildStrategy();
     return {
       ...lean,
-      schema: 'poe-target-forge/diagnostic-packet-v2',
+      schema: 'poe-target-forge/diagnostic-packet-v3',
       purpose: 'Diagnostic fallback for an agent that does not have the reusable knowledge package installed.',
       mechanic_catalog: MECHANIC_DATA,
       instructions_for_gpt: [
@@ -1229,7 +1329,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     state.selectedBaseId = id;
     state.selectedMods = [];
     state.influences.clear();
-    applicableCache = {key:null,mods:[]};
+    applicableCache = {key:null,mods:[],diagnostics:null};
     els.baseResults.hidden = true;
     renderAll();
   }
@@ -1241,7 +1341,7 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     state.quality = 20;
     state.rarity = 'rare';
     state.constraints = {openPrefix:false,openSuffix:false,allowCrafted:true,ssf:false,notes:''};
-    state.filters = {...state.filters, query:'', side:'all', source:'all', showUnavailable:true};
+    state.filters = {...state.filters, query:'', side:'all', source:'all', showUnavailable:true, density:'compact'};
     els.itemLevel.value = 86; els.qualityInput.value = 20; els.rarity.value = 'rare';
     els.openPrefix.checked = false; els.openSuffix.checked = false; els.allowCrafted.checked = true; els.ssfMode.checked = false; els.budgetInput.value='';
     els.modSearch.value=''; els.sideFilter.value='all'; els.showUnavailable.checked=true;
@@ -1277,17 +1377,28 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     els.loadRemoteBtn.disabled = true;
     els.remoteProgress.textContent = 'Downloading base items…';
     try {
-      const [baseRes, modsRes, byBaseRes, translationsRes] = await Promise.all([
-        fetch(REPOE_URLS.base_items), fetch(REPOE_URLS.mods), fetch(REPOE_URLS.mods_by_base), fetch(REPOE_URLS.stat_translations).catch(()=>null)
+      const optionalFetch = url => fetch(url).then(response => response.ok ? response : null).catch(() => null);
+      const [baseRes, modsRes, byBaseRes, translationsRes, benchRes, essencesRes, itemClassesRes] = await Promise.all([
+        fetch(REPOE_URLS.base_items),
+        fetch(REPOE_URLS.mods),
+        fetch(REPOE_URLS.mods_by_base),
+        optionalFetch(REPOE_URLS.stat_translations),
+        optionalFetch(REPOE_URLS.crafting_bench_options),
+        optionalFetch(REPOE_URLS.essences),
+        optionalFetch(REPOE_URLS.item_classes)
       ]);
       if (!baseRes.ok || !modsRes.ok || !byBaseRes.ok) throw new Error('One or more required RePoE files could not be downloaded.');
       els.remoteProgress.textContent = 'Parsing large JSON files…';
-      const [base_items, mods, mods_by_base, stat_translations] = await Promise.all([
-        baseRes.json(), modsRes.json(), byBaseRes.json(), translationsRes?.ok ? translationsRes.json() : Promise.resolve(null)
+      const [base_items, mods, mods_by_base, stat_translations, crafting_bench_options, essences, item_classes] = await Promise.all([
+        baseRes.json(), modsRes.json(), byBaseRes.json(),
+        translationsRes ? translationsRes.json() : Promise.resolve(null),
+        benchRes ? benchRes.json() : Promise.resolve(null),
+        essencesRes ? essencesRes.json() : Promise.resolve(null),
+        itemClassesRes ? itemClassesRes.json() : Promise.resolve(null)
       ]);
       els.remoteProgress.textContent = 'Building base-to-mod indexes…';
       await new Promise(resolve => setTimeout(resolve, 20));
-      const data = normalizeRepoeData({base_items,mods,mods_by_base,stat_translations});
+      const data = normalizeRepoeData({base_items,mods,mods_by_base,stat_translations,crafting_bench_options,essences,item_classes});
       setData(data, state.selectedBaseId);
       els.remoteProgress.textContent = `Loaded ${data.bases.length.toLocaleString()} equipment bases.`;
       toast('RePoE data loaded.');
@@ -1373,11 +1484,17 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
 
   els.modSearch.addEventListener('input', () => { state.filters.query=els.modSearch.value; renderModList(); });
   els.sideFilter.addEventListener('change', () => { state.filters.side=els.sideFilter.value; renderModList(); });
-  els.sourceFilter.addEventListener('change', () => { state.filters.source=els.sourceFilter.value; renderSourceControls(); renderModList(); });
+  els.sourceFilter.addEventListener('change', () => {
+    state.filters.source=els.sourceFilter.value;
+    if (state.filters.source !== 'all') state.openSourceGroups.add(state.filters.source);
+    renderSourceControls(); renderModList();
+  });
   els.showUnavailable.addEventListener('change', () => { state.filters.showUnavailable=els.showUnavailable.checked; renderModList(); });
   els.sourcePills.addEventListener('click', event => {
     const pill=event.target.closest('[data-source-pill]'); if(!pill)return;
-    state.filters.source=pill.dataset.sourcePill; renderSourceControls(); renderModList();
+    state.filters.source=pill.dataset.sourcePill;
+    if (state.filters.source !== 'all') state.openSourceGroups.add(state.filters.source);
+    renderSourceControls(); renderModList();
   });
   els.mechanicAccessControls.addEventListener('change', event => {
     const input=event.target.closest('[data-mechanic-id]'); if(!input)return;
@@ -1390,6 +1507,12 @@ ${JSON.stringify(buildAgentTarget(), null, 2)}`;
     if(preset) applyMechanicPreset(preset.dataset.mechanicPreset);
   });
   els.modList.addEventListener('click', event => { const btn=event.target.closest('[data-add-mod]'); if(btn)addMod(btn.dataset.addMod); });
+  els.modList.addEventListener('toggle', event => {
+    const details = event.target.closest?.('[data-source-group]');
+    if (!details) return;
+    if (details.open) state.openSourceGroups.add(details.dataset.sourceGroup);
+    else state.openSourceGroups.delete(details.dataset.sourceGroup);
+  }, true);
   document.addEventListener('keydown', event => {
     if (event.key==='/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { event.preventDefault(); els.modSearch.focus(); }
     if (event.key==='Escape') { els.dataModal.hidden=true; els.exportModal.hidden=true; els.baseResults.hidden=true; }

@@ -2,7 +2,7 @@
   'use strict';
 
   window.POE_CRAFTING_MECHANICS = {
-    package_id: 'poe1-crafting-knowledge-3.29.1.1-r2',
+    package_id: 'poe1-crafting-knowledge-3.29.1.1-r3',
     game: 'Path of Exile 1',
     patch: '3.29.1.1',
     league: 'Curse of the Allflame',
